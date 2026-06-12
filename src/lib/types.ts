@@ -9,6 +9,9 @@ export interface UiSnapshot {
 
 export interface AccountRowDTO {
   email: string;
+  providerLabel: string; // "Anthropic"
+  providerId: string; // "anthropic" — stable id for styling/future providers
+  providerAccent: string; // hex accent color for the provider badge
   planLabel: string; // "Acme AI · Team · 5x"
   isActive: boolean;
   bars: UsageBarDTO[];

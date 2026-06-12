@@ -27,6 +27,12 @@ pub struct UiSnapshot {
 #[serde(rename_all = "camelCase")]
 pub struct AccountRowDto {
     pub email: String,
+    /// Provider display name, e.g. "Anthropic".
+    pub provider_label: String,
+    /// Provider machine id, e.g. "anthropic" (CSS hook for per-provider color).
+    pub provider_id: String,
+    /// Provider accent color (hex).
+    pub provider_accent: String,
     pub plan_label: String,
     pub is_active: bool,
     pub bars: Vec<UsageBarDto>,
@@ -61,6 +67,9 @@ impl UiSnapshot {
 
                 AccountRowDto {
                     email: p.email.clone(),
+                    provider_label: p.provider.display_name().to_string(),
+                    provider_id: p.provider.id().to_string(),
+                    provider_accent: p.provider.accent().to_string(),
                     plan_label: p.plan_label(),
                     is_active,
                     bars: build_bars(report, now),

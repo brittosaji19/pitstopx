@@ -9,6 +9,7 @@ use serde_json::Value;
 
 use crate::claude_source::ClaudeSource;
 use crate::credentials::{ClaudeConfig, CredentialBlob};
+use crate::provider::Provider;
 use crate::secrets::SecretStore;
 
 /// Non-secret metadata for one saved account.
@@ -16,6 +17,10 @@ use crate::secrets::SecretStore;
 pub struct Profile {
     pub email: String,
     pub saved_at: DateTime<Utc>,
+    /// The model provider this account belongs to. Defaults to Anthropic so
+    /// profiles saved before providers existed load correctly.
+    #[serde(default)]
+    pub provider: Provider,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subscription_type: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -176,6 +181,8 @@ impl ProfileStore {
         let profile = Profile {
             email: email.clone(),
             saved_at: Utc::now(),
+            // Captured from the Claude Code source, so always Anthropic today.
+            provider: Provider::Anthropic,
             subscription_type: creds.as_ref().and_then(|c| c.subscription_type.clone()),
             rate_limit_tier: creds.as_ref().and_then(|c| c.rate_limit_tier.clone()),
             oauth_account,
@@ -242,6 +249,7 @@ mod tests {
         Profile {
             email: "user@example.com".into(),
             saved_at: Utc::now(),
+            provider: Provider::Anthropic,
             subscription_type: sub.map(str::to_string),
             rate_limit_tier: tier.map(str::to_string),
             oauth_account: json!({ "organizationName": org }),

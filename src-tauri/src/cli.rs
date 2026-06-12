@@ -80,7 +80,12 @@ pub async fn check() -> Result<()> {
     for p in &profiles {
         let is_active = active.as_deref() == Some(p.email.as_str());
         let marker = if is_active { "*" } else { " " };
-        print!("{marker} {} [{}]", p.email, p.plan_label());
+        print!(
+            "{marker} {} <{}> [{}]",
+            p.email,
+            p.provider.display_name(),
+            p.plan_label()
+        );
 
         let access = match credentials_for(&store, &p.email, is_active, now_ms).await {
             Ok(token) => token,

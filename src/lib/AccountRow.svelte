@@ -20,7 +20,16 @@
   }
 </script>
 
-<div class="row" class:active={row.isActive}>
+<div class="row" class:active={row.isActive} data-provider={row.providerId}>
+  <div class="provider-line">
+    <span
+      class="provider-badge"
+      style={`--provider-accent:${row.providerAccent}`}
+      title={`Provider: ${row.providerLabel}`}
+    >
+      {row.providerLabel}
+    </span>
+  </div>
   <div class="row-head">
     <span class="dot" class:on={row.isActive} aria-hidden="true"></span>
     <span class="email" class:active={row.isActive} title={row.email}>{row.email}</span>

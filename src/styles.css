@@ -105,6 +105,25 @@ body {
   background: var(--bg-elev);
 }
 
+.provider-line {
+  margin-bottom: 4px;
+}
+
+.provider-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  /* Tinted by the provider's accent color (passed via --provider-accent). */
+  color: var(--provider-accent, var(--coral));
+  background: color-mix(in srgb, var(--provider-accent, var(--coral)) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--provider-accent, var(--coral)) 35%, transparent);
+}
+
 .row-head {
   display: flex;
   align-items: center;

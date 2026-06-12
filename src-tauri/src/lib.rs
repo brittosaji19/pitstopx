@@ -13,6 +13,7 @@ pub mod notify;
 pub mod paths;
 pub mod prefs;
 pub mod profile_store;
+pub mod provider;
 pub mod secrets;
 pub mod tray;
 pub mod ui_events;
