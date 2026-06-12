@@ -1,0 +1,16 @@
+# Node / frontend
+node_modules/
+dist/
+.vite/
+
+# Rust / Tauri
+src-tauri/target/
+src-tauri/gen/
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+*.log
+
+# Local Tauri signing keys
+*.key

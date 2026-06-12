@@ -1,0 +1,70 @@
+[package]
+name = "pitstopx"
+version = "1.0.0"
+description = "Surface Claude Code usage limits and switch accounts from the system tray."
+authors = ["britto"]
+edition = "2021"
+rust-version = "1.77"
+license = "MIT"
+repository = "https://github.com/britto/pitstopx"
+default-run = "pitstopx"
+
+# The library powers the Tauri app; the binary wraps it (and the CLI modes).
+[lib]
+name = "pitstopx_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "pitstopx"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
+tauri-plugin-autostart = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-store = "2"
+
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+async-trait = "0.1"
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+chrono = { version = "0.4", features = ["clock", "serde"] }
+dirs = "5"
+thiserror = "1"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Transitive (pulled by tauri via cookie/plist). Pinned to 0.3.47 because 0.3.48
+# ships a time-macros codegen bug that breaks tauri-utils with a spurious
+# "conflicting implementations of From<HourBase>" error. Remove the pin once a
+# fixed 0.3.x is released.
+time = "=0.3.47"
+
+# Dynamic tray-icon rendering (percentage drawn with a built-in 5x7 bitmap font).
+tiny-skia = "0.11"
+
+# Used by the Linux encrypted-file fallback (machine-bound key generation).
+rand = "0.8"
+
+# Linux encrypted-file fallback for the secret store (age encryption).
+[target.'cfg(target_os = "linux")'.dependencies]
+age = "0.10"
+
+[features]
+default = []
+# Build the screenshot/demo mode with masked sample data.
+demo = []
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

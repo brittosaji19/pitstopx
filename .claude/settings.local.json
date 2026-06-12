@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(rustc --version)",
+      "Bash(cargo --version)",
+      "Bash(npm --version)",
+      "Bash(cargo tauri *)",
+      "PowerShell($node = \\(Get-Command node -ErrorAction SilentlyContinue\\); if \\($node\\) { node --version } else { \"node: not found\" }; $npm = \\(Get-Command npm -ErrorAction SilentlyContinue\\); if \\($npm\\) { npm --version } else { \"npm: not found\" }; $pnpm = \\(Get-Command pnpm -ErrorAction SilentlyContinue\\); if \\($pnpm\\) { \"pnpm: $\\(pnpm --version\\)\" } else { \"pnpm: not found\" })",
+      "PowerShell(node --version)",
+      "PowerShell(npm --version)",
+      "PowerShell(Write-Output \"node:\"; \\(Get-Command node -ErrorAction SilentlyContinue\\).Source; Write-Output \"npm:\"; \\(Get-Command npm -ErrorAction SilentlyContinue\\).Source; Write-Output \"pnpm:\"; \\(Get-Command pnpm -ErrorAction SilentlyContinue\\).Source; Write-Output \"cargo-tauri:\"; \\(Get-Command cargo-tauri -ErrorAction SilentlyContinue\\).Source)",
+      "Bash(rustup toolchain *)",
+      "Bash(rustup target *)",
+      "Bash(gcc --version)",
+      "Bash(clang --version)",
+      "Read(//clangarm64/**)",
+      "Bash(/clangarm64/bin/clang --version)",
+      "Bash(cargo update *)",
+      "Bash(cargo tree *)",
+      "Bash(cd \"c:/Users/britto/PitStopX/src-tauri\" && echo \"=== time + time-macros versions ===\"; cargo tree -i time-macros 2>&1 | head -8; echo \"=== who requires what time ===\"; grep -rE '^name = \"time\"|^version' ~/.cargo/registry/src/*/plist-1.9.0/Cargo.toml 2>/dev/null | head; echo \"=== plist time req ===\"; grep -A3 'dependencies.time\\\\|\"time\"' ~/.cargo/registry/src/*/plist-1.9.0/Cargo.toml 2>/dev/null | head; echo \"=== tauri-utils value.rs:110-120 ===\"; sed -n '108,120p' ~/.cargo/registry/src/*/tauri-utils-2.9.2/src/acl/value.rs 2>/dev/null)",
+      "Read(//c/Users/britto/.cargo/registry/src/**)",
+      "Read(//c/Program Files/Git/clangarm64/bin//**)",
+      "Read(//c/Program Files/LLVM/bin/**)",
+      "Read(//c/Program Files/Microsoft Visual Studio/18/**)",
+      "Bash(rm -f build-win.log)",
+      "Bash(powershell -ExecutionPolicy Bypass -File scripts/build-windows.ps1)",
+      "Bash(echo \"started build, pid $!\")"
+    ]
+  }
+}

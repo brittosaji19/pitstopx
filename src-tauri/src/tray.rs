@@ -1,0 +1,429 @@
+//! Dynamic tray-icon rendering (`tiny-skia` + a built-in 5×7 bitmap font) and
+//! the native context menu (Tauri `Menu`). Because Windows/Linux trays are icon-only, the
+//! percentage and warning state are drawn *into* the icon bitmap; the tooltip
+//! carries the textual detail on all OSes.
+
+use anyhow::Result;
+use tauri::image::Image;
+use tauri::menu::{CheckMenuItemBuilder, Menu, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+use tauri::{AppHandle, Wry};
+use tiny_skia::{Color, Paint, PathBuilder, Pixmap, Rect, Stroke, Transform};
+
+use crate::app::AppState;
+use crate::prefs::{IndicatorPrefs, IndicatorStyle};
+
+/// Rendered icon size (px). Rendered larger than the tray slot so the OS
+/// downscales for crisp text; the percentage font scales to fit this width.
+const ICON: u32 = 64;
+
+/// Brand coral.
+const CORAL: (u8, u8, u8) = (0xD9, 0x77, 0x57);
+
+/// Inputs that determine what the tray icon should look like right now.
+pub struct TrayVisual {
+    pub utilization: Option<f64>,
+    pub stale: bool,
+    pub prefs: IndicatorPrefs,
+}
+
+impl TrayVisual {
+    /// Derive the visual from current state for the active account.
+    pub fn from_state(state: &AppState) -> Self {
+        let util = state.indicator_utilization();
+        TrayVisual {
+            utilization: util,
+            stale: state.active_is_stale(),
+            prefs: state.prefs,
+        }
+    }
+}
+
+/// Warning tier driving the badge color.
+fn warning_color(pct: f64) -> Option<Color> {
+    if pct >= 90.0 {
+        Some(Color::from_rgba8(0xE5, 0x3E, 0x3E, 255)) // red
+    } else if pct >= 75.0 {
+        Some(Color::from_rgba8(0xF5, 0xA1, 0x23, 255)) // orange
+    } else {
+        None
+    }
+}
+
+/// Render the tray icon to an RGBA `Image`.
+pub fn render_icon(v: &TrayVisual) -> Result<Image<'static>> {
+    let mut pixmap = Pixmap::new(ICON, ICON).expect("nonzero pixmap");
+    let alpha = if v.stale { 0.45 } else { 1.0 };
+
+    let pct = v.utilization.map(|u| (u * 100.0).round());
+
+    // Gauge / checkered motif background (skipped in percentOnly).
+    if v.prefs.style.shows_gauge() {
+        draw_gauge(&mut pixmap, pct, alpha);
+    }
+
+    // Percentage pill.
+    if v.prefs.style.shows_percent() {
+        let label = match pct {
+            Some(p) => format!("{}%", p as i64),
+            None => "–".to_string(),
+        };
+        draw_percent_pill(&mut pixmap, &label, pct, alpha);
+    }
+
+    // Warning badge dot in the corner.
+    if let Some(p) = pct {
+        if let Some(color) = warning_color(p) {
+            draw_badge(&mut pixmap, color, alpha);
+        }
+    }
+
+    Ok(Image::new_owned(pixmap.take(), ICON, ICON))
+}
+
+fn draw_gauge(pixmap: &mut Pixmap, pct: Option<f64>, alpha: f32) {
+    let cx = ICON as f32 / 2.0;
+    let cy = ICON as f32 / 2.0;
+    let r = ICON as f32 * 0.42;
+
+    // Track ring.
+    let mut track = Paint::default();
+    track.set_color(Color::from_rgba8(0x88, 0x88, 0x88, (255.0 * alpha) as u8));
+    track.anti_alias = true;
+    if let Some(circle) = PathBuilder::from_circle(cx, cy, r) {
+        let stroke = Stroke {
+            width: 3.0,
+            ..Default::default()
+        };
+        pixmap.stroke_path(&circle, &track, &stroke, Transform::identity(), None);
+    }
+
+    // Fill arc proportional to utilization.
+    if let Some(p) = pct {
+        let frac = (p / 100.0).clamp(0.0, 1.0) as f32;
+        let mut paint = Paint::default();
+        let (cr, cg, cb) = CORAL;
+        paint.set_color(Color::from_rgba8(cr, cg, cb, (255.0 * alpha) as u8));
+        paint.anti_alias = true;
+        let mut pb = PathBuilder::new();
+        let steps = (frac * 64.0).ceil().max(1.0) as usize;
+        for i in 0..=steps {
+            let t = i as f32 / 64.0;
+            let ang = -std::f32::consts::FRAC_PI_2 + t * std::f32::consts::TAU;
+            let x = cx + r * ang.cos();
+            let y = cy + r * ang.sin();
+            if i == 0 {
+                pb.move_to(x, y);
+            } else {
+                pb.line_to(x, y);
+            }
+        }
+        if let Some(path) = pb.finish() {
+            let stroke = Stroke {
+                width: 3.5,
+                ..Default::default()
+            };
+            pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
+        }
+    }
+}
+
+/// Draw the `NN%` / `–` label centered, using a built-in 5×7 bitmap font (no
+/// external font asset, so the build stays hermetic). A high-contrast pill sits
+/// behind the digits so they stay legible on any taskbar ink.
+fn draw_percent_pill(pixmap: &mut Pixmap, label: &str, pct: Option<f64>, alpha: f32) {
+    let chars: Vec<char> = label.chars().collect();
+    let n = chars.len() as i32;
+
+    // Pick the largest cell (pixel) size whose laid-out width still fits the
+    // icon with room for the pill padding. A glyph block is 5 cells wide plus a
+    // 1-cell gap, so the label width is `cell * (6n - 1)`.
+    let pill_pad: i32 = 3;
+    let avail = ICON as i32 - 2 * pill_pad - 4;
+    let denom = (6 * n - 1).max(1);
+    let cell: i32 = (avail / denom).clamp(2, 6);
+
+    let glyph_w = GLYPH_W as i32 * cell;
+    let glyph_h = GLYPH_H as i32 * cell;
+    let gap = cell; // inter-glyph spacing
+
+    let total_w = n * glyph_w + (n - 1).max(0) * gap;
+    let x0 = (ICON as i32 - total_w) / 2;
+    let y0 = (ICON as i32 - glyph_h) / 2;
+
+    // Pill background.
+    let pad = pill_pad as f32;
+    if let Some(rect) = Rect::from_xywh(
+        x0 as f32 - pad,
+        y0 as f32 - pad,
+        total_w as f32 + pad * 2.0,
+        glyph_h as f32 + pad * 2.0,
+    ) {
+        let mut bg = Paint::default();
+        bg.set_color(Color::from_rgba8(0x16, 0x16, 0x16, (210.0 * alpha) as u8));
+        bg.anti_alias = true;
+        pixmap.fill_rect(rect, &bg, Transform::identity(), None);
+    }
+
+    // Text color follows the warning tier.
+    let (tr, tg, tb) = match pct {
+        Some(p) if p >= 90.0 => (0xFF, 0x6B, 0x6B),
+        Some(p) if p >= 75.0 => (0xFF, 0xC1, 0x6B),
+        _ => (0xFF, 0xFF, 0xFF),
+    };
+
+    let mut pen_x = x0;
+    for c in chars {
+        draw_glyph(pixmap, glyph_for(c), pen_x, y0, cell, (tr, tg, tb), alpha);
+        pen_x += glyph_w + gap;
+    }
+}
+
+/// Blit one 5×7 glyph at `cell`-pixel scale.
+fn draw_glyph(
+    pixmap: &mut Pixmap,
+    glyph: [u8; GLYPH_H],
+    ox: i32,
+    oy: i32,
+    cell: i32,
+    (r, g, b): (u8, u8, u8),
+    alpha: f32,
+) {
+    let a = (255.0 * alpha) as u8;
+    for (row, bits) in glyph.iter().enumerate() {
+        for col in 0..GLYPH_W {
+            // Bit 4 (0x10) is the leftmost column.
+            if bits & (1 << (GLYPH_W - 1 - col)) != 0 {
+                for dy in 0..cell {
+                    for dx in 0..cell {
+                        let px = ox + col as i32 * cell + dx;
+                        let py = oy + row as i32 * cell + dy;
+                        if px >= 0 && py >= 0 && px < ICON as i32 && py < ICON as i32 {
+                            blend_pixel(pixmap, px as u32, py as u32, r, g, b, a);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+const GLYPH_W: usize = 5;
+const GLYPH_H: usize = 7;
+
+/// 5×7 bitmap glyphs for digits, `%`, and `–`. Each row's low 5 bits are the
+/// pixels, bit 4 leftmost. Unknown chars render blank.
+fn glyph_for(c: char) -> [u8; GLYPH_H] {
+    match c {
+        '0' => [0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E],
+        '1' => [0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E],
+        '2' => [0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F],
+        '3' => [0x1F, 0x02, 0x04, 0x02, 0x01, 0x11, 0x0E],
+        '4' => [0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02],
+        '5' => [0x1F, 0x10, 0x1E, 0x01, 0x01, 0x11, 0x0E],
+        '6' => [0x06, 0x08, 0x10, 0x1E, 0x11, 0x11, 0x0E],
+        '7' => [0x1F, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08],
+        '8' => [0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E],
+        '9' => [0x0E, 0x11, 0x11, 0x0F, 0x01, 0x02, 0x0C],
+        '%' => [0x18, 0x19, 0x02, 0x04, 0x08, 0x13, 0x03],
+        '–' | '-' => [0x00, 0x00, 0x00, 0x1F, 0x00, 0x00, 0x00],
+        _ => [0x00; GLYPH_H],
+    }
+}
+
+fn draw_badge(pixmap: &mut Pixmap, color: Color, alpha: f32) {
+    let r = ICON as f32 * 0.16;
+    let cx = ICON as f32 - r - 1.0;
+    let cy = r + 1.0;
+    if let Some(circle) = PathBuilder::from_circle(cx, cy, r) {
+        let mut paint = Paint::default();
+        let c = color;
+        paint.set_color(Color::from_rgba(c.red(), c.green(), c.blue(), alpha).unwrap());
+        paint.anti_alias = true;
+        pixmap.fill_path(
+            &circle,
+            &paint,
+            tiny_skia::FillRule::Winding,
+            Transform::identity(),
+            None,
+        );
+    }
+}
+
+/// Alpha-blend a single pixel onto the pixmap (premultiplied-safe enough for
+/// the small glyph coverage we draw).
+fn blend_pixel(pixmap: &mut Pixmap, x: u32, y: u32, r: u8, g: u8, b: u8, a: u8) {
+    let idx = (y * ICON + x) as usize * 4;
+    let data = pixmap.data_mut();
+    let af = a as f32 / 255.0;
+    let inv = 1.0 - af;
+    data[idx] = (r as f32 * af + data[idx] as f32 * inv) as u8;
+    data[idx + 1] = (g as f32 * af + data[idx + 1] as f32 * inv) as u8;
+    data[idx + 2] = (b as f32 * af + data[idx + 2] as f32 * inv) as u8;
+    data[idx + 3] = data[idx + 3].max(a);
+}
+
+/// Tooltip detail: `"<email> — 5-hour NN% · weekly NN%"` (+ stale note).
+pub fn tooltip(state: &AppState) -> String {
+    let Some(email) = &state.active_email else {
+        return "PitStopX — no active account".to_string();
+    };
+    match state.usage.get(email) {
+        Some(r) => {
+            let five = crate::format::percent(r.five_hour.utilization);
+            let week = crate::format::percent(r.seven_day.utilization);
+            let stale = if state.active_is_stale() {
+                " · stale"
+            } else {
+                ""
+            };
+            format!("{email} — 5-hour {five} · weekly {week}{stale}")
+        }
+        None => format!("{email} — loading…"),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Native context menu
+// ---------------------------------------------------------------------------
+
+/// Menu item ids (stable strings matched in the event handler).
+pub mod ids {
+    pub const SAVE_CURRENT: &str = "save_current";
+    pub const REFRESH_NOW: &str = "refresh_now";
+    pub const LAUNCH_AT_LOGIN: &str = "launch_at_login";
+    pub const QUIT: &str = "quit";
+    pub const UPDATED_INFO: &str = "updated_info";
+    /// Prefixes for dynamic items: `remove::<email>`, `style::<key>`, `metric::<key>`.
+    pub const REMOVE_PREFIX: &str = "remove::";
+    pub const STYLE_PREFIX: &str = "style::";
+    pub const METRIC_PREFIX: &str = "metric::";
+}
+
+/// A `Send` snapshot of the state the native menu needs. Extracted under the
+/// async lock so the actual (non-`Send`) menu construction can run on the main
+/// thread without holding `AppState`.
+pub struct MenuModel {
+    /// (email, is_active) for every saved account, in display order.
+    pub accounts: Vec<(String, bool)>,
+    pub prefs: IndicatorPrefs,
+    pub last_refresh: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl MenuModel {
+    pub fn from_state(state: &AppState) -> Self {
+        let active = state.active_email.clone();
+        MenuModel {
+            accounts: state
+                .profiles
+                .iter()
+                .map(|p| (p.email.clone(), active.as_deref() == Some(p.email.as_str())))
+                .collect(),
+            prefs: state.prefs,
+            last_refresh: state.last_refresh,
+        }
+    }
+}
+
+/// Build the native context menu reflecting current state.
+pub fn build_menu(app: &AppHandle, model: &MenuModel, launch_at_login: bool) -> Result<Menu<Wry>> {
+    let prefs = model.prefs;
+
+    // Remove Account ▸ (non-active accounts).
+    let mut remove_sub = SubmenuBuilder::new(app, "Remove Account");
+    let removable: Vec<&str> = model
+        .accounts
+        .iter()
+        .filter(|(_, is_active)| !is_active)
+        .map(|(email, _)| email.as_str())
+        .collect();
+    if removable.is_empty() {
+        remove_sub = remove_sub.item(
+            &MenuItemBuilder::new("(none)")
+                .id("remove_none")
+                .enabled(false)
+                .build(app)?,
+        );
+    } else {
+        for email in removable {
+            remove_sub = remove_sub.item(
+                &MenuItemBuilder::new(email)
+                    .id(format!("{}{email}", ids::REMOVE_PREFIX))
+                    .build(app)?,
+            );
+        }
+    }
+    let remove_sub = remove_sub.build()?;
+
+    // Menu Bar / Tray Display ▸ (style + metric radio-ish groups via checks).
+    let style_items = [
+        ("Icon + Percent", IndicatorStyle::IconAndPercent),
+        ("Icon Only", IndicatorStyle::IconOnly),
+        ("Percent Only", IndicatorStyle::PercentOnly),
+    ];
+    let mut display_sub = SubmenuBuilder::new(app, "Menu Bar / Tray Display");
+    for (label, style) in style_items {
+        display_sub = display_sub.item(
+            &CheckMenuItemBuilder::new(label)
+                .id(format!("{}{}", ids::STYLE_PREFIX, style.as_key()))
+                .checked(prefs.style == style)
+                .build(app)?,
+        );
+    }
+    display_sub = display_sub.separator();
+    let metric_items = [
+        ("Highest (binding)", crate::prefs::IndicatorMetric::Binding),
+        ("5-hour", crate::prefs::IndicatorMetric::FiveHour),
+        ("Weekly", crate::prefs::IndicatorMetric::Weekly),
+    ];
+    for (label, metric) in metric_items {
+        display_sub = display_sub.item(
+            &CheckMenuItemBuilder::new(label)
+                .id(format!("{}{}", ids::METRIC_PREFIX, metric.as_key()))
+                .checked(prefs.metric == metric)
+                .build(app)?,
+        );
+    }
+    let display_sub = display_sub.build()?;
+
+    let updated = model
+        .last_refresh
+        .map(|t| crate::format::updated(t.with_timezone(&chrono::Local)))
+        .unwrap_or_else(|| "never".into());
+
+    let menu = MenuBuilder::new(app)
+        .item(
+            &MenuItemBuilder::new("Save Current Account")
+                .id(ids::SAVE_CURRENT)
+                .build(app)?,
+        )
+        .item(&remove_sub)
+        .separator()
+        .item(
+            &MenuItemBuilder::new("Refresh Now")
+                .id(ids::REFRESH_NOW)
+                .build(app)?,
+        )
+        .item(&display_sub)
+        .separator()
+        .item(
+            &CheckMenuItemBuilder::new("Launch at Login")
+                .id(ids::LAUNCH_AT_LOGIN)
+                .checked(launch_at_login)
+                .build(app)?,
+        )
+        .separator()
+        .item(
+            &MenuItemBuilder::new(format!("Updated {updated} · refreshes every 2 min"))
+                .id(ids::UPDATED_INFO)
+                .enabled(false)
+                .build(app)?,
+        )
+        .item(
+            &MenuItemBuilder::new("Quit PitStopX")
+                .id(ids::QUIT)
+                .build(app)?,
+        )
+        .build()?;
+
+    Ok(menu)
+}

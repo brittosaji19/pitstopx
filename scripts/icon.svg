@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  PitStopX app icon: a usage gauge over a checkered-flag motif.
+  Single source of truth; `scripts/make-icon.mjs` rasterizes this into every
+  required size/format (.icns, .ico, PNG set) via `tauri icon`.
+-->
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2A2A2D"/>
+      <stop offset="1" stop-color="#161618"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="32" y="32" width="448" height="448" rx="104" fill="url(#bg)"/>
+
+  <!-- Checkered-flag band -->
+  <g opacity="0.30">
+    <g fill="#FFFFFF">
+      <rect x="96"  y="360" width="40" height="40"/>
+      <rect x="176" y="360" width="40" height="40"/>
+      <rect x="256" y="360" width="40" height="40"/>
+      <rect x="336" y="360" width="40" height="40"/>
+      <rect x="136" y="400" width="40" height="40"/>
+      <rect x="216" y="400" width="40" height="40"/>
+      <rect x="296" y="400" width="40" height="40"/>
+      <rect x="376" y="400" width="40" height="40"/>
+    </g>
+  </g>
+
+  <!-- Gauge track -->
+  <circle cx="256" cy="232" r="132" fill="none" stroke="#4A4A4F" stroke-width="26"/>
+  <!-- Gauge fill (~70%) in brand coral -->
+  <path d="M256 100
+           A132 132 0 1 1 162 394"
+        fill="none" stroke="#D97757" stroke-width="26" stroke-linecap="round"/>
+
+  <!-- Needle hub -->
+  <circle cx="256" cy="232" r="20" fill="#D97757"/>
+</svg>
