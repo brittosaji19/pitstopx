@@ -37,11 +37,36 @@ pub enum UsageError {
     Decode(String),
 }
 
-/// One usage window (5-hour or 7-day).
+/// One usage window. Its length (`period_minutes`) drives the displayed label,
+/// so providers with different windows (Anthropic 5h/weekly, Codex monthly)
+/// render correctly without hard-coded labels.
 #[derive(Debug, Clone, Default)]
 pub struct Window {
     pub utilization: Option<f64>,
     pub resets_at: Option<DateTime<Local>>,
+    /// Nominal window length in minutes (300 = 5h, 10080 = weekly,
+    /// 43200 = monthly). `None` marks an absent window, which is not rendered.
+    pub period_minutes: Option<i64>,
+}
+
+impl Window {
+    /// Human label derived from the window length: `"5h"`, `"7d"`, `"Monthly"`,
+    /// or a generic `"Nh"`/`"Nd"`. `None` when the window is absent.
+    pub fn label(&self) -> Option<String> {
+        self.period_minutes.map(|mins| {
+            let mins = mins.max(1);
+            if mins < 1440 {
+                format!("{}h", ((mins as f64) / 60.0).round() as i64)
+            } else {
+                let days = ((mins as f64) / 1440.0).round() as i64;
+                match days {
+                    7 => "7d".to_string(),
+                    28..=31 => "Monthly".to_string(),
+                    _ => format!("{days}d"),
+                }
+            }
+        })
+    }
 }
 
 /// Extra-usage (pay-as-you-go overage) status.
@@ -120,6 +145,8 @@ fn window_from(v: Option<&Value>) -> Window {
     Window {
         utilization: utilization_of(Some(v)),
         resets_at: parse_reset(v.get("resets_at")),
+        // Anthropic windows are fixed-length; the caller stamps the period.
+        period_minutes: None,
     }
 }
 
@@ -164,9 +191,14 @@ pub async fn fetch_usage(access_token: &str) -> Result<UsageReport, UsageError> 
         .map_err(|e| UsageError::Decode(e.to_string()))?;
 
     let extra = body.get("extra_usage");
+    // Anthropic's two windows are always a 5-hour and a 7-day (weekly) window.
+    let mut five_hour = window_from(body.get("five_hour"));
+    five_hour.period_minutes = Some(300);
+    let mut seven_day = window_from(body.get("seven_day"));
+    seven_day.period_minutes = Some(10080);
     Ok(UsageReport {
-        five_hour: window_from(body.get("five_hour")),
-        seven_day: window_from(body.get("seven_day")),
+        five_hour,
+        seven_day,
         seven_day_opus: utilization_of(body.get("seven_day_opus")),
         seven_day_sonnet: utilization_of(body.get("seven_day_sonnet")),
         extra_usage: ExtraUsage {
@@ -239,7 +271,22 @@ mod tests {
         Window {
             utilization: Some(u),
             resets_at: None,
+            period_minutes: None,
         }
+    }
+
+    #[test]
+    fn window_label_derived_from_period() {
+        let label = |m: Option<i64>| Window {
+            period_minutes: m,
+            ..Default::default()
+        }
+        .label();
+        assert_eq!(label(Some(300)).as_deref(), Some("5h"));
+        assert_eq!(label(Some(10080)).as_deref(), Some("7d"));
+        assert_eq!(label(Some(43200)).as_deref(), Some("Monthly"));
+        assert_eq!(label(Some(4320)).as_deref(), Some("3d")); // generic
+        assert_eq!(label(None), None); // absent window
     }
 
     #[test]

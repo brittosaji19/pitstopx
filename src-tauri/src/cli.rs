@@ -106,9 +106,18 @@ pub async fn check() -> Result<()> {
 
         match engine::fetch(p.provider, &blob, is_active, now_ms).await {
             Ok(fetched) => {
-                let five = format::percent(fetched.report.five_hour.utilization);
-                let week = format::percent(fetched.report.seven_day.utilization);
-                println!("  5-hour {five} · weekly {week}");
+                let parts: Vec<String> = [&fetched.report.five_hour, &fetched.report.seven_day]
+                    .into_iter()
+                    .filter_map(|w| Some(format!("{} {}", w.label()?, format::percent(w.utilization))))
+                    .collect();
+                println!(
+                    "  {}",
+                    if parts.is_empty() {
+                        "no usage".to_string()
+                    } else {
+                        parts.join(" · ")
+                    }
+                );
                 // Persist a refreshed inactive blob so the next run is cheap. The
                 // old token is already revoked server-side, so a failed write
                 // leaves the saved login broken — say so loudly.

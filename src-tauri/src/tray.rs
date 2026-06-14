@@ -263,7 +263,8 @@ fn blend_pixel(pixmap: &mut Pixmap, x: u32, y: u32, r: u8, g: u8, b: u8, a: u8) 
     data[idx + 3] = data[idx + 3].max(a);
 }
 
-/// Tooltip detail: `"<email> (Provider) — 5-hour NN% · weekly NN%"` (+ stale).
+/// Tooltip detail: `"<email> (Provider) — <win> NN% · …"` (+ stale), where the
+/// windows are whatever the provider reports (e.g. `5h`/`7d`, or `Monthly`).
 pub fn tooltip(state: &AppState) -> String {
     let (Some(key), Some((provider, email))) = (state.primary_key(), state.active_primary.clone())
     else {
@@ -271,17 +272,23 @@ pub fn tooltip(state: &AppState) -> String {
     };
     match state.usage.get(&key) {
         Some(r) => {
-            let five = crate::format::percent(r.five_hour.utilization);
-            let week = crate::format::percent(r.seven_day.utilization);
+            let parts: Vec<String> = [&r.five_hour, &r.seven_day]
+                .into_iter()
+                .filter_map(|w| {
+                    Some(format!("{} {}", w.label()?, crate::format::percent(w.utilization)))
+                })
+                .collect();
+            let body = if parts.is_empty() {
+                "loading…".to_string()
+            } else {
+                parts.join(" · ")
+            };
             let stale = if state.active_is_stale() {
                 " · stale"
             } else {
                 ""
             };
-            format!(
-                "{email} ({}) — 5-hour {five} · weekly {week}{stale}",
-                provider.display_name()
-            )
+            format!("{email} ({}) — {body}{stale}", provider.display_name())
         }
         None => format!("{email} ({}) — loading…", provider.display_name()),
     }

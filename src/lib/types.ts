@@ -23,7 +23,7 @@ export interface AccountRowDTO {
 }
 
 export interface UsageBarDTO {
-  label: "5h" | "7d";
+  label: string; // window label derived from its length: "5h", "7d", "Monthly", …
   utilization: number | null; // 0..1
   resetText: string; // "9:49 PM · 3h 34m"
 }

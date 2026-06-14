@@ -237,7 +237,7 @@ button.chip {
 
 .bar-row {
   display: grid;
-  grid-template-columns: 22px 1fr 38px;
+  grid-template-columns: 52px 1fr 38px;
   grid-template-areas:
     "label track pct"
     ". reset reset";

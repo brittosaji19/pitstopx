@@ -78,28 +78,56 @@ fn parse_usage(body: &Value) -> UsageReport {
         .or_else(|| body.get("usage"))
         .unwrap_or(body);
 
-    let five_hour = window(container, &["primary", "primary_window", "five_hour", "5h"]);
-    let seven_day = window(
+    // Codex exposes a single monthly limit. Different payload versions label it
+    // `primary`, `secondary`, or `monthly`; use whichever is present (preferring
+    // the longer secondary window when both exist) and show it as monthly unless
+    // the response states an explicit window length. It lives in the `seven_day`
+    // slot; `five_hour` stays absent so no 5-hour bar is rendered for Codex.
+    let monthly = codex_window(
         container,
-        &["secondary", "secondary_window", "weekly", "seven_day", "7d"],
+        &[
+            "secondary",
+            "secondary_window",
+            "monthly",
+            "weekly",
+            "seven_day",
+            "7d",
+            "primary",
+            "primary_window",
+            "five_hour",
+            "5h",
+        ],
+        43200,
     );
 
     UsageReport {
-        five_hour,
-        seven_day,
+        seven_day: monthly,
         ..Default::default()
     }
 }
 
-fn window(container: &Value, keys: &[&str]) -> Window {
+/// Locate a window under any alias and tag it with its length. The length comes
+/// from the response when present, else `default_minutes`. Absent → a default
+/// (period-less) window the UI skips.
+fn codex_window(container: &Value, keys: &[&str], default_minutes: i64) -> Window {
     for k in keys {
         if let Some(w) = container.get(*k) {
             if !w.is_null() {
-                return window_from(w);
+                let mut win = window_from(w);
+                win.period_minutes = Some(window_minutes(w).unwrap_or(default_minutes));
+                return win;
             }
         }
     }
     Window::default()
+}
+
+/// Explicit window length (minutes) from whichever field the response carries.
+fn window_minutes(w: &Value) -> Option<i64> {
+    if let Some(m) = num(w, &["window_minutes", "window_size_minutes", "limit_window_minutes"]) {
+        return Some(m as i64);
+    }
+    num(w, &["window_seconds", "window_size_seconds"]).map(|s| (s / 60.0) as i64)
 }
 
 fn window_from(w: &Value) -> Window {
@@ -118,6 +146,8 @@ fn window_from(w: &Value) -> Window {
     Window {
         utilization: used_pct.map(|u| (u / 100.0).clamp(0.0, 1.0)),
         resets_at: parse_reset(w),
+        // Set by the caller (`codex_window`) from the window length.
+        period_minutes: None,
     }
 }
 
@@ -210,7 +240,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_primary_secondary_used_percent() {
+    fn shows_single_monthly_window() {
+        // Both windows present → show only the monthly (secondary) one; no 5h bar.
         let body = serde_json::json!({
             "rate_limits": {
                 "primary": { "used_percent": 42.0, "resets_in_seconds": 3600 },
@@ -218,19 +249,43 @@ mod tests {
             }
         });
         let r = parse_usage(&body);
-        assert_eq!(r.five_hour.utilization, Some(0.42));
+        assert_eq!(r.five_hour.label(), None); // no 5-hour bar for Codex
         assert_eq!(r.seven_day.utilization, Some(0.085));
-        assert!(r.five_hour.resets_at.is_some());
+        assert!(r.seven_day.resets_at.is_some());
+        assert_eq!(r.seven_day.label().as_deref(), Some("Monthly"));
+    }
+
+    #[test]
+    fn monthly_only_when_primary_absent() {
+        // A plan reporting just the monthly window → no 5h bar.
+        let body = serde_json::json!({
+            "rate_limits": { "secondary": { "used_percent": 68.0 } }
+        });
+        let r = parse_usage(&body);
+        assert_eq!(r.five_hour.label(), None); // absent → not rendered
+        assert_eq!(r.seven_day.label().as_deref(), Some("Monthly"));
+        assert_eq!(r.seven_day.utilization, Some(0.68));
+    }
+
+    #[test]
+    fn explicit_window_length_overrides_default() {
+        let body = serde_json::json!({
+            "rate_limits": {
+                "secondary": { "used_percent": 10.0, "window_minutes": 10080 }
+            }
+        });
+        let r = parse_usage(&body);
+        assert_eq!(r.seven_day.label().as_deref(), Some("7d"));
     }
 
     #[test]
     fn derives_used_from_remaining_and_alt_names() {
+        // `percent_left` is converted to a used fraction on the monthly window.
         let body = serde_json::json!({
-            "five_hour": { "percent_left": 70.0 },
-            "weekly": { "usage_percent": 12.0 }
+            "rate_limits": { "primary": { "percent_left": 70.0 } }
         });
         let r = parse_usage(&body);
-        assert_eq!(r.five_hour.utilization, Some(0.30));
-        assert_eq!(r.seven_day.utilization, Some(0.12));
+        assert_eq!(r.seven_day.utilization, Some(0.30));
+        assert_eq!(r.seven_day.label().as_deref(), Some("Monthly"));
     }
 }

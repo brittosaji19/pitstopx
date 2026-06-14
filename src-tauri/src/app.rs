@@ -70,10 +70,12 @@ impl AppState {
     pub fn indicator_utilization(&self) -> Option<f64> {
         let key = self.primary_key()?;
         let report = self.usage.get(&key)?;
+        // Fall back to the binding figure when the requested window is absent
+        // (e.g. Codex has no 5-hour window — only monthly).
         match self.prefs.metric {
             IndicatorMetric::Binding => report.max_utilization(),
-            IndicatorMetric::FiveHour => report.five_hour.utilization,
-            IndicatorMetric::Weekly => report.seven_day.utilization,
+            IndicatorMetric::FiveHour => report.five_hour.utilization.or(report.max_utilization()),
+            IndicatorMetric::Weekly => report.seven_day.utilization.or(report.max_utilization()),
         }
     }
 

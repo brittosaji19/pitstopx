@@ -116,41 +116,27 @@ fn max_util(bars: &[UsageBarDto]) -> Option<f64> {
         .fold(None, |acc, u| Some(acc.map_or(u, |a: f64| a.max(u))))
 }
 
+/// One bar per *present* window, labeled from its length (so Codex shows
+/// "Monthly", Anthropic "5h"/"7d"). Absent windows are skipped; before the first
+/// fetch there are no windows yet (the row shows a "Loading…" status instead).
 fn build_bars(report: Option<&UsageReport>, now: chrono::DateTime<Local>) -> Vec<UsageBarDto> {
     let Some(r) = report else {
-        return vec![
-            UsageBarDto {
-                label: "5h".into(),
-                utilization: None,
-                reset_text: String::new(),
-            },
-            UsageBarDto {
-                label: "7d".into(),
-                utilization: None,
-                reset_text: String::new(),
-            },
-        ];
+        return Vec::new();
     };
-    vec![
-        UsageBarDto {
-            label: "5h".into(),
-            utilization: r.five_hour.utilization,
-            reset_text: r
-                .five_hour
-                .resets_at
-                .map(|t| format::compact_reset(t, now))
-                .unwrap_or_default(),
-        },
-        UsageBarDto {
-            label: "7d".into(),
-            utilization: r.seven_day.utilization,
-            reset_text: r
-                .seven_day
-                .resets_at
-                .map(|t| format::compact_reset(t, now))
-                .unwrap_or_default(),
-        },
-    ]
+    [&r.five_hour, &r.seven_day]
+        .into_iter()
+        .filter_map(|w| {
+            let label = w.label()?;
+            Some(UsageBarDto {
+                label,
+                utilization: w.utilization,
+                reset_text: w
+                    .resets_at
+                    .map(|t| format::compact_reset(t, now))
+                    .unwrap_or_default(),
+            })
+        })
+        .collect()
 }
 
 /// `"Opus wk 12% · Sonnet wk 10% · Extra 4%"` — built only when at least one
