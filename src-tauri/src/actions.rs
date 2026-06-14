@@ -42,6 +42,35 @@ pub async fn do_switch_to(app: &AppHandle, provider: Provider, email: &str) -> C
     Ok(())
 }
 
+/// Start a browser login for a *new* account of `provider`: save the current
+/// one first (so it isn't lost when the login overwrites the live creds), open
+/// the provider's login terminal, then refresh a few times to pick up the new
+/// account once the user finishes.
+pub async fn do_login(app: &AppHandle, provider: Provider) -> CmdResult {
+    let ctrl = ctrl(app);
+    // Snapshot the current account(s) so a switch-back is always possible.
+    let _ = ctrl.store.capture_current().await;
+
+    crate::login::launch(provider).map_err(|e| e.to_string())?;
+
+    ctrl.notifier.notify(
+        app,
+        &format!("Log in to {}", provider.display_name()),
+        "Finish signing in via the opened terminal/browser. PitStopX will pick up the new account automatically.",
+    );
+
+    // Poll a few times so the new account appears shortly after login.
+    let ctrl2 = ctrl.clone();
+    let app2 = app.clone();
+    tauri::async_runtime::spawn(async move {
+        for delay in [10u64, 20, 40, 80, 120] {
+            tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
+            app::refresh_all(ctrl2.clone(), app2.clone()).await;
+        }
+    });
+    Ok(())
+}
+
 pub async fn do_save_current(app: &AppHandle) -> CmdResult {
     let ctrl = ctrl(app);
     match ctrl.store.capture_current().await {
@@ -152,6 +181,11 @@ pub async fn switch_to(app: AppHandle, email: String, provider: String) -> CmdRe
 #[tauri::command]
 pub async fn save_current(app: AppHandle) -> CmdResult {
     do_save_current(&app).await
+}
+
+#[tauri::command]
+pub async fn login_new(app: AppHandle, provider: String) -> CmdResult {
+    do_login(&app, Provider::from_id(&provider)).await
 }
 
 #[tauri::command]

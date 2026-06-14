@@ -47,6 +47,16 @@ impl Provider {
         }
     }
 
+    /// The CLI command that starts this provider's interactive login flow,
+    /// as `(program, args)`. Run in a terminal so the user can complete the
+    /// browser OAuth (and paste a code if prompted).
+    pub fn login_command(self) -> (&'static str, &'static [&'static str]) {
+        match self {
+            Provider::Anthropic => ("claude", &["/login"]),
+            Provider::OpenAI => ("codex", &["login"]),
+        }
+    }
+
     /// Resolve from a persisted id; unknown ids fall back to the default.
     pub fn from_id(s: &str) -> Self {
         match s {

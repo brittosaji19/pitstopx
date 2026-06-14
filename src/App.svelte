@@ -55,6 +55,22 @@
     }
   }
 
+  // Start a browser login for a new account of the given provider.
+  async function login(provider: "anthropic" | "openai", label: string) {
+    if (busy) return;
+    busy = true;
+    flash(`Opening ${label} login…`);
+    try {
+      await invoke("login_new", { provider });
+      flash(`Finish ${label} login in the terminal that opened`);
+    } catch (err) {
+      console.error("login_new failed", err);
+      flash(`Login failed: ${err}`);
+    } finally {
+      busy = false;
+    }
+  }
+
   // Snapshot the currently-logged-in account(s) into the app so they can be
   // switched back to later.
   async function saveCurrent() {
@@ -90,6 +106,12 @@
       {/each}
     </div>
   {/if}
+
+  <div class="add-account">
+    <span class="add-label">Add account</span>
+    <button class="action" on:click={() => login("anthropic", "Claude")} disabled={busy}>＋ Claude</button>
+    <button class="action" on:click={() => login("openai", "Codex")} disabled={busy}>＋ Codex</button>
+  </div>
 
   <footer class="footer">
     <button class="action save" on:click={saveCurrent} disabled={busy} title="Save the current account so you can switch back to it later">

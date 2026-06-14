@@ -12,6 +12,7 @@ pub mod codex_usage;
 pub mod credentials;
 pub mod engine;
 pub mod format;
+pub mod login;
 pub mod notify;
 pub mod paths;
 pub mod prefs;
@@ -67,6 +68,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             actions::switch_to,
             actions::save_current,
+            actions::login_new,
             actions::remove_account,
             actions::refresh_now,
             actions::set_indicator_style,
@@ -149,6 +151,8 @@ fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
         } else if id == ids::QUIT {
             actions::do_quit(&app);
             Ok(())
+        } else if let Some(pid) = id.strip_prefix(ids::LOGIN_PREFIX) {
+            actions::do_login(&app, provider::Provider::from_id(pid)).await
         } else if let Some(rest) = id.strip_prefix(ids::REMOVE_PREFIX) {
             // rest = "<provider_id>:<email>"
             match rest.split_once(':') {

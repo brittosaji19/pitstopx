@@ -298,8 +298,10 @@ pub mod ids {
     pub const LAUNCH_AT_LOGIN: &str = "launch_at_login";
     pub const QUIT: &str = "quit";
     pub const UPDATED_INFO: &str = "updated_info";
-    /// Prefixes for dynamic items: `remove::<email>`, `style::<key>`, `metric::<key>`.
+    /// Prefixes for dynamic items: `remove::<email>`, `login::<provider_id>`,
+    /// `style::<key>`, `metric::<key>`.
     pub const REMOVE_PREFIX: &str = "remove::";
+    pub const LOGIN_PREFIX: &str = "login::";
     pub const STYLE_PREFIX: &str = "style::";
     pub const METRIC_PREFIX: &str = "metric::";
 }
@@ -396,12 +398,24 @@ pub fn build_menu(app: &AppHandle, model: &MenuModel, launch_at_login: bool) -> 
     }
     let display_sub = display_sub.build()?;
 
+    // Log in to new account ▸ (one item per provider).
+    let mut login_sub = SubmenuBuilder::new(app, "Log in to New Account");
+    for provider in Provider::ALL {
+        login_sub = login_sub.item(
+            &MenuItemBuilder::new(provider.display_name())
+                .id(format!("{}{}", ids::LOGIN_PREFIX, provider.id()))
+                .build(app)?,
+        );
+    }
+    let login_sub = login_sub.build()?;
+
     let updated = model
         .last_refresh
         .map(|t| crate::format::updated(t.with_timezone(&chrono::Local)))
         .unwrap_or_else(|| "never".into());
 
     let menu = MenuBuilder::new(app)
+        .item(&login_sub)
         .item(
             &MenuItemBuilder::new("Save Current Account")
                 .id(ids::SAVE_CURRENT)
