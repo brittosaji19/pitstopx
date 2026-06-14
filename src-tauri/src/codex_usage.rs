@@ -124,7 +124,14 @@ fn codex_window(container: &Value, keys: &[&str], default_minutes: i64) -> Windo
 
 /// Explicit window length (minutes) from whichever field the response carries.
 fn window_minutes(w: &Value) -> Option<i64> {
-    if let Some(m) = num(w, &["window_minutes", "window_size_minutes", "limit_window_minutes"]) {
+    if let Some(m) = num(
+        w,
+        &[
+            "window_minutes",
+            "window_size_minutes",
+            "limit_window_minutes",
+        ],
+    ) {
         return Some(m as i64);
     }
     num(w, &["window_seconds", "window_size_seconds"]).map(|s| (s / 60.0) as i64)

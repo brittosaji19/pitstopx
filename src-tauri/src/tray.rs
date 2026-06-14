@@ -275,7 +275,11 @@ pub fn tooltip(state: &AppState) -> String {
             let parts: Vec<String> = [&r.five_hour, &r.seven_day]
                 .into_iter()
                 .filter_map(|w| {
-                    Some(format!("{} {}", w.label()?, crate::format::percent(w.utilization)))
+                    Some(format!(
+                        "{} {}",
+                        w.label()?,
+                        crate::format::percent(w.utilization)
+                    ))
                 })
                 .collect();
             let body = if parts.is_empty() {

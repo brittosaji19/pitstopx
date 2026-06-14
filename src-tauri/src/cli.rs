@@ -108,7 +108,9 @@ pub async fn check() -> Result<()> {
             Ok(fetched) => {
                 let parts: Vec<String> = [&fetched.report.five_hour, &fetched.report.seven_day]
                     .into_iter()
-                    .filter_map(|w| Some(format!("{} {}", w.label()?, format::percent(w.utilization))))
+                    .filter_map(|w| {
+                        Some(format!("{} {}", w.label()?, format::percent(w.utilization)))
+                    })
                     .collect();
                 println!(
                     "  {}",

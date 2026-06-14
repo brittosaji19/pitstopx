@@ -110,7 +110,8 @@ mod tests {
     /// seconds), with a refresh token present.
     fn codex_blob(exp: i64) -> Vec<u8> {
         let header = URL_SAFE_NO_PAD.encode(b"{\"alg\":\"none\"}");
-        let payload = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&serde_json::json!({ "exp": exp })).unwrap());
+        let payload =
+            URL_SAFE_NO_PAD.encode(serde_json::to_vec(&serde_json::json!({ "exp": exp })).unwrap());
         let access = format!("{header}.{payload}.sig");
         serde_json::to_vec(&serde_json::json!({
             "tokens": { "access_token": access, "refresh_token": "rt", "account_id": "acc" }

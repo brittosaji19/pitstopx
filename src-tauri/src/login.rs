@@ -125,7 +125,9 @@ fn spawn_terminal(program: &std::path::Path, args: &[&str]) -> Result<()> {
         const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
         // cmd /K <program> <args…>  in its own console window.
         let mut cmd = Command::new("cmd");
-        cmd.creation_flags(CREATE_NEW_CONSOLE).arg("/K").arg(program);
+        cmd.creation_flags(CREATE_NEW_CONSOLE)
+            .arg("/K")
+            .arg(program);
         cmd.args(args);
         cmd.spawn()
             .map_err(|e| anyhow!("failed to open terminal: {e}"))?;

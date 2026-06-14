@@ -277,11 +277,13 @@ mod tests {
 
     #[test]
     fn window_label_derived_from_period() {
-        let label = |m: Option<i64>| Window {
-            period_minutes: m,
-            ..Default::default()
-        }
-        .label();
+        let label = |m: Option<i64>| {
+            Window {
+                period_minutes: m,
+                ..Default::default()
+            }
+            .label()
+        };
         assert_eq!(label(Some(300)).as_deref(), Some("5h"));
         assert_eq!(label(Some(10080)).as_deref(), Some("7d"));
         assert_eq!(label(Some(43200)).as_deref(), Some("Monthly"));
