@@ -11,6 +11,7 @@ use tiny_skia::{Color, Paint, PathBuilder, Pixmap, Rect, Stroke, Transform};
 
 use crate::app::AppState;
 use crate::prefs::{IndicatorPrefs, IndicatorStyle};
+use crate::provider::Provider;
 
 /// Rendered icon size (px). Rendered larger than the tray slot so the OS
 /// downscales for crisp text; the percentage font scales to fit this width.
@@ -262,12 +263,13 @@ fn blend_pixel(pixmap: &mut Pixmap, x: u32, y: u32, r: u8, g: u8, b: u8, a: u8) 
     data[idx + 3] = data[idx + 3].max(a);
 }
 
-/// Tooltip detail: `"<email> — 5-hour NN% · weekly NN%"` (+ stale note).
+/// Tooltip detail: `"<email> (Provider) — 5-hour NN% · weekly NN%"` (+ stale).
 pub fn tooltip(state: &AppState) -> String {
-    let Some(email) = &state.active_email else {
+    let (Some(key), Some((provider, email))) = (state.primary_key(), state.active_primary.clone())
+    else {
         return "PitStopX — no active account".to_string();
     };
-    match state.usage.get(email) {
+    match state.usage.get(&key) {
         Some(r) => {
             let five = crate::format::percent(r.five_hour.utilization);
             let week = crate::format::percent(r.seven_day.utilization);
@@ -276,9 +278,12 @@ pub fn tooltip(state: &AppState) -> String {
             } else {
                 ""
             };
-            format!("{email} — 5-hour {five} · weekly {week}{stale}")
+            format!(
+                "{email} ({}) — 5-hour {five} · weekly {week}{stale}",
+                provider.display_name()
+            )
         }
-        None => format!("{email} — loading…"),
+        None => format!("{email} ({}) — loading…", provider.display_name()),
     }
 }
 
@@ -303,20 +308,25 @@ pub mod ids {
 /// async lock so the actual (non-`Send`) menu construction can run on the main
 /// thread without holding `AppState`.
 pub struct MenuModel {
-    /// (email, is_active) for every saved account, in display order.
-    pub accounts: Vec<(String, bool)>,
+    /// (provider, email, is_active) for every saved account, in display order.
+    pub accounts: Vec<(Provider, String, bool)>,
     pub prefs: IndicatorPrefs,
     pub last_refresh: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl MenuModel {
     pub fn from_state(state: &AppState) -> Self {
-        let active = state.active_email.clone();
         MenuModel {
             accounts: state
                 .profiles
                 .iter()
-                .map(|p| (p.email.clone(), active.as_deref() == Some(p.email.as_str())))
+                .map(|p| {
+                    (
+                        p.provider,
+                        p.email.clone(),
+                        state.active_keys.contains(&p.key()),
+                    )
+                })
                 .collect(),
             prefs: state.prefs,
             last_refresh: state.last_refresh,
@@ -330,11 +340,11 @@ pub fn build_menu(app: &AppHandle, model: &MenuModel, launch_at_login: bool) -> 
 
     // Remove Account ▸ (non-active accounts).
     let mut remove_sub = SubmenuBuilder::new(app, "Remove Account");
-    let removable: Vec<&str> = model
+    let removable: Vec<(Provider, &str)> = model
         .accounts
         .iter()
-        .filter(|(_, is_active)| !is_active)
-        .map(|(email, _)| email.as_str())
+        .filter(|(_, _, is_active)| !is_active)
+        .map(|(provider, email, _)| (*provider, email.as_str()))
         .collect();
     if removable.is_empty() {
         remove_sub = remove_sub.item(
@@ -344,10 +354,11 @@ pub fn build_menu(app: &AppHandle, model: &MenuModel, launch_at_login: bool) -> 
                 .build(app)?,
         );
     } else {
-        for email in removable {
+        for (provider, email) in removable {
+            // Encode provider + email in the id: `remove::<provider_id>:<email>`.
             remove_sub = remove_sub.item(
-                &MenuItemBuilder::new(email)
-                    .id(format!("{}{email}", ids::REMOVE_PREFIX))
+                &MenuItemBuilder::new(format!("{email} ({})", provider.display_name()))
+                    .id(format!("{}{}:{email}", ids::REMOVE_PREFIX, provider.id()))
                     .build(app)?,
             );
         }

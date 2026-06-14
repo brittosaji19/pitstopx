@@ -1,10 +1,14 @@
 # PitStopX
 
 A cross-platform **system-tray / menu-bar app** for **Windows, macOS, and
-Linux** that surfaces Claude Code account **usage limits** and lets you **switch
-between Claude accounts with one click** — so when one account hits its 5-hour or
-weekly rate limit you can flip to another and keep working without restarting
-sessions.
+Linux** that surfaces AI coding-assistant **usage limits** and lets you **switch
+between accounts with one click** — so when one account hits its 5-hour or weekly
+rate limit you can flip to another and keep working without restarting sessions.
+
+**Providers tracked:** **Anthropic** (Claude Code) and **OpenAI** (Codex). Each
+account row shows its provider badge; usage, refresh, and switching are handled
+per provider behind a common `AccountSource` seam, so adding more providers is a
+localized change.
 
 PitStopX is the portable successor to the macOS-only **PitStop** (Swift/AppKit),
 built on **Tauri v2 (Rust core + native WebView)**. See
@@ -28,12 +32,19 @@ built on **Tauri v2 (Rust core + native WebView)**. See
 - **WebView popover** (Svelte) is a pure view + action surface; it never touches
   secrets. State flows one way: Rust pushes `UiSnapshot` events, the panel calls
   back via `invoke`.
-- Two **platform abstractions** isolate every OS difference:
+- Abstractions isolate every OS *and* provider difference:
   - `SecretStore` — where PitStopX keeps *its own* credential copies
     (macOS Keychain via `security` / Windows Credential Manager / Linux Secret
-    Service, with an encrypted-file fallback).
-  - `ClaudeSource` — where Claude Code keeps *its* live login (macOS Keychain /
-    `~/.claude/.credentials.json` on Windows/Linux), detected at runtime.
+    Service). Blobs larger than the Windows Credential Manager limit (~2560 B,
+    e.g. Codex's multi-KB `auth.json`) transparently fall back to an
+    age-encrypted file; Linux uses the same file fallback when no Secret Service
+    is present.
+  - `AccountSource` — where each provider keeps *its* live login, detected at
+    runtime: Claude (macOS Keychain / `~/.claude/.credentials.json`) and Codex
+    (`$CODEX_HOME/auth.json`, default `~/.codex/auth.json`; identity decoded from
+    the `id_token` JWT).
+  - `engine` — per-provider token refresh + usage fetch: Anthropic
+    `oauth/usage`, OpenAI Codex `backend-api/wham/usage`.
 
 ```
 src-tauri/src/

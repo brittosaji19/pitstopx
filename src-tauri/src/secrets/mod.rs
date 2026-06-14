@@ -6,6 +6,8 @@
 use anyhow::Result;
 use async_trait::async_trait;
 
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+mod encrypted_file;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]
@@ -31,7 +33,7 @@ pub fn build() -> Result<Box<dyn SecretStore>> {
     }
     #[cfg(target_os = "windows")]
     {
-        Ok(Box::new(windows::WinCredStore::new()))
+        Ok(Box::new(windows::WinCredStore::new()?))
     }
     #[cfg(target_os = "linux")]
     {

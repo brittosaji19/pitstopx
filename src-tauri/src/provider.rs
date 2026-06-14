@@ -8,19 +8,26 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum Provider {
     /// Claude / Claude Code.
     #[default]
     Anthropic,
+    /// OpenAI Codex (ChatGPT-backed login).
+    #[serde(rename = "openai")]
+    OpenAI,
 }
 
 impl Provider {
+    /// Every known provider (for iterating sources, menus, etc.).
+    pub const ALL: [Provider; 2] = [Provider::Anthropic, Provider::OpenAI];
+
     /// Stable machine id (persisted in `profiles.json`, used as a CSS hook).
     pub fn id(self) -> &'static str {
         match self {
             Provider::Anthropic => "anthropic",
+            Provider::OpenAI => "openai",
         }
     }
 
@@ -28,6 +35,7 @@ impl Provider {
     pub fn display_name(self) -> &'static str {
         match self {
             Provider::Anthropic => "Anthropic",
+            Provider::OpenAI => "OpenAI",
         }
     }
 
@@ -35,6 +43,7 @@ impl Provider {
     pub fn accent(self) -> &'static str {
         match self {
             Provider::Anthropic => "#D97757",
+            Provider::OpenAI => "#10A37F",
         }
     }
 
@@ -42,6 +51,7 @@ impl Provider {
     pub fn from_id(s: &str) -> Self {
         match s {
             "anthropic" => Provider::Anthropic,
+            "openai" => Provider::OpenAI,
             _ => Provider::default(),
         }
     }

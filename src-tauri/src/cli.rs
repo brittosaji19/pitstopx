@@ -3,13 +3,12 @@
 
 use anyhow::Result;
 use chrono::Utc;
+use std::collections::HashSet;
 
-use crate::claude_source;
-use crate::credentials::CredentialBlob;
 use crate::format;
 use crate::profile_store::ProfileStore;
-use crate::secrets;
-use crate::usage_api;
+use crate::source::{self, secret_key};
+use crate::{engine, secrets};
 
 /// Which mode (if any) was requested on the command line.
 pub enum CliMode {
@@ -34,13 +33,10 @@ pub fn parse(args: &[String]) -> CliMode {
 
 /// Build a `ProfileStore` for headless use.
 fn store() -> Result<ProfileStore> {
-    Ok(ProfileStore::new(
-        secrets::build()?,
-        claude_source::build()?,
-    ))
+    Ok(ProfileStore::new(secrets::build()?, source::build_all()?))
 }
 
-/// `--print-paths`: resolved config/data/log dirs + detected Claude Code creds.
+/// `--print-paths`: resolved dirs + each provider's detected credential location.
 pub fn print_paths() -> Result<()> {
     println!("PitStopX paths");
     println!("  config dir : {}", crate::paths::config_dir()?.display());
@@ -51,9 +47,14 @@ pub fn print_paths() -> Result<()> {
         crate::paths::profiles_file()?.display()
     );
 
-    let source = claude_source::build()?;
-    println!("  identity   : {}", source.identity_path().display());
-    println!("  live creds : {}", source.describe());
+    let store = store()?;
+    for source in store.sources() {
+        println!(
+            "  {:<9} : {}",
+            source.provider().display_name(),
+            source.describe()
+        );
+    }
     Ok(())
 }
 
@@ -62,23 +63,27 @@ pub async fn check() -> Result<()> {
     let store = store()?;
     let now_ms = Utc::now().timestamp_millis();
 
-    // Snapshot the current account so the saved copy is current.
+    // Snapshot the current account(s) so the saved copies are current.
     if let Err(e) = store.capture_current().await {
         eprintln!("warning: capture_current failed: {e}");
     }
 
     let profiles = store.load()?;
-    let active = store.active_email()?;
+    let active = store.active_accounts().await;
+    let active_keys: HashSet<String> = active.iter().map(|(p, e)| secret_key(*p, e)).collect();
+
     if profiles.is_empty() {
-        println!("No saved accounts. Log in with `claude` first.");
+        println!("No saved accounts. Log in with `claude` or `codex` first.");
         return Ok(());
     }
 
-    println!("Active account: {}", active.as_deref().unwrap_or("(none)"));
+    for (provider, email) in &active {
+        println!("Active {}: {email}", provider.display_name());
+    }
     println!();
 
     for p in &profiles {
-        let is_active = active.as_deref() == Some(p.email.as_str());
+        let is_active = active_keys.contains(&p.key());
         let marker = if is_active { "*" } else { " " };
         print!(
             "{marker} {} <{}> [{}]",
@@ -87,49 +92,32 @@ pub async fn check() -> Result<()> {
             p.plan_label()
         );
 
-        let access = match credentials_for(&store, &p.email, is_active, now_ms).await {
-            Ok(token) => token,
+        let blob = match store.blob_for(p.provider, &p.email, is_active).await {
+            Ok(Some(b)) => b,
+            Ok(None) => {
+                println!("  — no credentials");
+                continue;
+            }
             Err(e) => {
                 println!("  — credential error: {e}");
                 continue;
             }
         };
 
-        match usage_api::fetch_usage(&access).await {
-            Ok(report) => {
-                let five = format::percent(report.five_hour.utilization);
-                let week = format::percent(report.seven_day.utilization);
+        match engine::fetch(p.provider, &blob, is_active, now_ms).await {
+            Ok(fetched) => {
+                let five = format::percent(fetched.report.five_hour.utilization);
+                let week = format::percent(fetched.report.seven_day.utilization);
                 println!("  5-hour {five} · weekly {week}");
+                // Persist a refreshed inactive blob so the next run is cheap.
+                if let Some(new_blob) = fetched.refreshed_blob {
+                    let _ = store
+                        .store_refreshed_blob(p.provider, &p.email, &new_blob)
+                        .await;
+                }
             }
             Err(e) => println!("  — usage error: {e}"),
         }
     }
     Ok(())
-}
-
-async fn credentials_for(
-    store: &ProfileStore,
-    email: &str,
-    is_active: bool,
-    now_ms: i64,
-) -> Result<String> {
-    let raw = store
-        .blob_for(email, is_active)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("no blob"))?;
-    let blob = CredentialBlob::parse(&raw)?;
-    let creds = blob.credentials()?;
-    if is_active || !creds.is_expired(now_ms) {
-        return Ok(creds.access_token);
-    }
-    let refresh = creds
-        .refresh_token
-        .as_deref()
-        .ok_or_else(|| anyhow::anyhow!("expired, no refresh token"))?;
-    let fresh = usage_api::refresh_token(refresh, now_ms).await?;
-    let patched = blob.patching(&fresh)?;
-    store
-        .store_refreshed_blob(email, is_active, &patched.to_bytes())
-        .await?;
-    Ok(fresh.access_token)
 }

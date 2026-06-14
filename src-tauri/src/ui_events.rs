@@ -55,15 +55,15 @@ impl UiSnapshot {
     /// ascending `max_utilization` (emptiest next).
     pub fn build(state: &AppState) -> Self {
         let now = Local::now();
-        let active = state.active_email.clone();
 
         let mut rows: Vec<AccountRowDto> = state
             .profiles
             .iter()
             .map(|p| {
-                let is_active = active.as_deref() == Some(p.email.as_str());
-                let report = state.usage.get(&p.email);
-                let error = state.fetch_error.get(&p.email);
+                let key = p.key();
+                let is_active = state.active_keys.contains(&key);
+                let report = state.usage.get(&key);
+                let error = state.fetch_error.get(&key);
 
                 AccountRowDto {
                     email: p.email.clone(),
@@ -74,7 +74,7 @@ impl UiSnapshot {
                     is_active,
                     bars: build_bars(report, now),
                     models_line: report.and_then(models_line),
-                    status_line: status_line(state, &p.email, report, error, now),
+                    status_line: status_line(state, &key, report, error, now),
                     switchable: !is_active,
                 }
             })
@@ -94,7 +94,7 @@ impl UiSnapshot {
         });
 
         UiSnapshot {
-            active_email: active,
+            active_email: state.primary_email().map(str::to_string),
             last_refresh: state.last_refresh.map(|t| t.to_rfc3339()),
             last_top_level_error: state.last_top_level_error.clone(),
             rows,

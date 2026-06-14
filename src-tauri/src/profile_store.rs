@@ -1,16 +1,16 @@
 //! `Profile` + `ProfileStore`: non-secret account metadata persisted to
-//! `<config>/pitstopx/profiles.json`, plus the capture/switch logic. Secrets
-//! (the blob) live in the `SecretStore`, never here.
+//! `<config>/pitstopx/profiles.json`, plus capture/switch logic across every
+//! provider. Secrets (the credential blob) live in the `SecretStore`, never
+//! here. Provider-specific credential locations live behind `AccountSource`.
 
 use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::claude_source::ClaudeSource;
-use crate::credentials::{ClaudeConfig, CredentialBlob};
 use crate::provider::Provider;
 use crate::secrets::SecretStore;
+use crate::source::{secret_key, AccountSource};
 
 /// Non-secret metadata for one saved account.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,13 +25,19 @@ pub struct Profile {
     pub subscription_type: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rate_limit_tier: Option<String>,
-    /// Verbatim `oauthAccount` object from `~/.claude.json`.
+    /// Provider-shaped identity object restored on switch.
     #[serde(default)]
     pub oauth_account: Value,
 }
 
 impl Profile {
-    /// Derived display label, e.g. `"Acme AI · Team · 5x"`.
+    /// Canonical key used across the secret store and the in-memory caches.
+    pub fn key(&self) -> String {
+        secret_key(self.provider, &self.email)
+    }
+
+    /// Derived display label, e.g. `"Acme AI · Team · 5x"` (Anthropic) or
+    /// `"Pro"` (OpenAI/Codex).
     ///
     /// Joins, with `" · "`: the org name (dropping the auto-generated
     /// `"<email>'s Organization"`), the capitalized `subscription_type`, and the
@@ -76,20 +82,29 @@ fn capitalize(s: &str) -> String {
     }
 }
 
-/// Owns persistence of profiles and the capture/switch operations. Holds the
-/// two platform abstractions.
+/// Owns persistence of profiles and the capture/switch operations across all
+/// providers.
 pub struct ProfileStore {
     secrets: Box<dyn SecretStore>,
-    source: Box<dyn ClaudeSource>,
+    sources: Vec<Box<dyn AccountSource>>,
 }
 
 impl ProfileStore {
-    pub fn new(secrets: Box<dyn SecretStore>, source: Box<dyn ClaudeSource>) -> Self {
-        Self { secrets, source }
+    pub fn new(secrets: Box<dyn SecretStore>, sources: Vec<Box<dyn AccountSource>>) -> Self {
+        Self { secrets, sources }
     }
 
-    fn identity_config(&self) -> ClaudeConfig {
-        ClaudeConfig::at(self.source.identity_path())
+    fn source_for(&self, provider: Provider) -> Result<&dyn AccountSource> {
+        self.sources
+            .iter()
+            .find(|s| s.provider() == provider)
+            .map(|b| b.as_ref())
+            .ok_or_else(|| anyhow!("no source for provider {}", provider.id()))
+    }
+
+    /// All account sources (for diagnostics like `--print-paths`).
+    pub fn sources(&self) -> &[Box<dyn AccountSource>] {
+        &self.sources
     }
 
     /// Load the saved profile list from disk (empty when the file is absent).
@@ -110,131 +125,136 @@ impl ProfileStore {
         crate::claude_source::atomic_write(&path, &bytes)
     }
 
-    /// The active account email, per `~/.claude.json`.
-    pub fn active_email(&self) -> Result<Option<String>> {
-        self.identity_config().active_email()
-    }
-
-    /// Read a profile's credential blob — the *live* item for the active
-    /// account, the *saved* item otherwise.
-    pub async fn blob_for(&self, email: &str, is_active: bool) -> Result<Option<Vec<u8>>> {
-        if is_active {
-            self.source.read_live_blob().await
-        } else {
-            self.secrets.read(email).await
-        }
-    }
-
-    /// Persist a freshly-refreshed blob back to the correct store.
-    pub async fn store_refreshed_blob(
-        &self,
-        email: &str,
-        is_active: bool,
-        blob: &[u8],
-    ) -> Result<()> {
-        if is_active {
-            self.source.write_live_blob(blob).await
-        } else {
-            self.secrets.upsert(email, blob).await
-        }
-    }
-
-    /// Snapshot the live account (blob + identity) into a saved profile.
-    /// Short-circuits when nothing changed (blob + `oauthAccount` byte-equal)
-    /// to avoid needless secret-store / file writes. Returns the captured email
-    /// (or `None` when there is nothing to save).
-    pub async fn capture_current(&self) -> Result<Option<String>> {
-        let Some(live_bytes) = self.source.read_live_blob().await? else {
-            return Ok(None);
-        };
-        let blob =
-            CredentialBlob::parse(&live_bytes).context("live credential blob is malformed")?;
-
-        let config = self.identity_config();
-        let Some(oauth_account) = config.oauth_account()? else {
-            return Ok(None);
-        };
-        let email = oauth_account
-            .get("emailAddress")
-            .and_then(Value::as_str)
-            .ok_or_else(|| anyhow!("active identity has no emailAddress"))?
-            .to_string();
-
-        let mut profiles = self.load()?;
-
-        // Short-circuit: skip writes when the saved copy already matches.
-        if let Some(existing) = profiles.iter().find(|p| p.email == email) {
-            let saved_blob = self.secrets.read(&email).await?;
-            let blob_same = saved_blob
-                .as_deref()
-                .map(|b| blob.equals_bytes(b))
-                .unwrap_or(false);
-            if blob_same && existing.oauth_account == oauth_account {
-                return Ok(Some(email));
+    /// The currently-active account for each provider, as `(provider, email)`.
+    pub async fn active_accounts(&self) -> Vec<(Provider, String)> {
+        let mut out = Vec::new();
+        for source in &self.sources {
+            if let Ok(Some(live)) = source.read_live().await {
+                out.push((source.provider(), live.identity.email));
             }
         }
-
-        // Persist the (possibly refreshed) blob and the metadata.
-        self.secrets.upsert(&email, &live_bytes).await?;
-
-        let creds = blob.credentials().ok();
-        let profile = Profile {
-            email: email.clone(),
-            saved_at: Utc::now(),
-            // Captured from the Claude Code source, so always Anthropic today.
-            provider: Provider::Anthropic,
-            subscription_type: creds.as_ref().and_then(|c| c.subscription_type.clone()),
-            rate_limit_tier: creds.as_ref().and_then(|c| c.rate_limit_tier.clone()),
-            oauth_account,
-        };
-
-        match profiles.iter_mut().find(|p| p.email == email) {
-            Some(slot) => *slot = profile,
-            None => profiles.push(profile),
-        }
-        self.save(&profiles)?;
-        Ok(Some(email))
+        out
     }
 
-    /// Switch the live login to `email`'s saved account.
+    /// Read a profile's credential blob — the live item for the active account,
+    /// the saved item otherwise.
+    pub async fn blob_for(
+        &self,
+        provider: Provider,
+        email: &str,
+        is_active: bool,
+    ) -> Result<Option<Vec<u8>>> {
+        if is_active {
+            Ok(self
+                .source_for(provider)?
+                .read_live()
+                .await?
+                .map(|l| l.blob))
+        } else {
+            self.secrets.read(&secret_key(provider, email)).await
+        }
+    }
+
+    /// Persist a freshly-refreshed blob for an inactive saved account.
+    pub async fn store_refreshed_blob(
+        &self,
+        provider: Provider,
+        email: &str,
+        blob: &[u8],
+    ) -> Result<()> {
+        self.secrets
+            .upsert(&secret_key(provider, email), blob)
+            .await
+    }
+
+    /// Snapshot every provider's current live account into a saved profile.
+    /// Short-circuits per provider when nothing changed (blob + identity
+    /// byte-equal). Returns the captured `(provider, email)` pairs.
+    pub async fn capture_current(&self) -> Result<Vec<(Provider, String)>> {
+        let mut profiles = self.load()?;
+        let mut captured = Vec::new();
+        let mut dirty = false;
+
+        for source in &self.sources {
+            let provider = source.provider();
+            let Some(live) = source.read_live().await? else {
+                continue;
+            };
+            let email = live.identity.email.clone();
+            let key = secret_key(provider, &email);
+
+            // Short-circuit: skip writes when the saved copy already matches.
+            let saved = self.secrets.read(&key).await?;
+            let existing = profiles
+                .iter()
+                .find(|p| p.provider == provider && p.email == email);
+            let unchanged = saved.as_deref() == Some(live.blob.as_slice())
+                && existing
+                    .map(|p| p.oauth_account == live.identity.oauth_account)
+                    .unwrap_or(false);
+            if unchanged {
+                captured.push((provider, email));
+                continue;
+            }
+
+            self.secrets.upsert(&key, &live.blob).await?;
+            let profile = Profile {
+                email: email.clone(),
+                saved_at: Utc::now(),
+                provider,
+                subscription_type: live.identity.subscription_type.clone(),
+                rate_limit_tier: live.identity.rate_limit_tier.clone(),
+                oauth_account: live.identity.oauth_account.clone(),
+            };
+            match profiles
+                .iter_mut()
+                .find(|p| p.provider == provider && p.email == email)
+            {
+                Some(slot) => *slot = profile,
+                None => profiles.push(profile),
+            }
+            dirty = true;
+            captured.push((provider, email));
+        }
+
+        if dirty {
+            self.save(&profiles)?;
+        }
+        Ok(captured)
+    }
+
+    /// Switch the live login for `provider` to `email`'s saved account.
     ///
-    /// Captures the current account first; a failed snapshot **aborts** the
-    /// switch so the outgoing refresh token can't be lost. Then writes the
-    /// saved blob into the live location and restores `oauthAccount`.
-    pub async fn switch_to(&self, email: &str) -> Result<()> {
-        // Capture-first guard.
+    /// Captures the current accounts first; a failed snapshot **aborts** the
+    /// switch so the outgoing refresh token can't be lost.
+    pub async fn switch_to(&self, provider: Provider, email: &str) -> Result<()> {
         self.capture_current()
             .await
-            .context("aborting switch: failed to snapshot the current account")?;
+            .context("aborting switch: failed to snapshot the current account(s)")?;
 
         let saved_blob = self
             .secrets
-            .read(email)
+            .read(&secret_key(provider, email))
             .await?
             .ok_or_else(|| anyhow!("no saved credentials for {email}"))?;
-        // Validate before writing.
-        CredentialBlob::parse(&saved_blob)
-            .with_context(|| format!("saved blob for {email} is malformed"))?;
 
         let profiles = self.load()?;
         let profile = profiles
             .iter()
-            .find(|p| p.email == email)
+            .find(|p| p.provider == provider && p.email == email)
             .ok_or_else(|| anyhow!("no saved profile for {email}"))?;
 
-        // 1) Write the live credential blob.
-        self.source.write_live_blob(&saved_blob).await?;
-        // 2) Restore identity (only oauthAccount changes; atomic whole-file write).
-        self.identity_config()
-            .set_oauth_account(&profile.oauth_account)?;
+        self.source_for(provider)?
+            .write_live(&saved_blob, &profile.oauth_account)
+            .await?;
         Ok(())
     }
 
     /// Delete a saved account: secret item + profile entry.
-    pub async fn remove(&self, email: &str) -> Result<()> {
-        self.secrets.delete(email).await?;
+    pub async fn remove(&self, provider: Provider, email: &str) -> Result<()> {
+        self.secrets.delete(&secret_key(provider, email)).await?;
         let mut profiles = self.load()?;
-        profiles.retain(|p| p.email != email);
+        profiles.retain(|p| !(p.provider == provider && p.email == email));
         self.save(&profiles)?;
         Ok(())
     }
@@ -277,5 +297,13 @@ mod tests {
         let mut p = profile_with("", None, None);
         p.oauth_account = json!({});
         assert_eq!(p.plan_label(), "user@example.com");
+    }
+
+    #[test]
+    fn key_namespaces_non_anthropic() {
+        let mut p = profile_with("", Some("pro"), None);
+        assert_eq!(p.key(), "user@example.com"); // anthropic = legacy email key
+        p.provider = Provider::OpenAI;
+        assert_eq!(p.key(), "openai:user@example.com");
     }
 }

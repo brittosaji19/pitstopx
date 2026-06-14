@@ -11,7 +11,7 @@
     if (!row.switchable || switching) return;
     switching = true;
     try {
-      await invoke("switch_to", { email: row.email });
+      await invoke("switch_to", { email: row.email, provider: row.providerId });
     } catch (err) {
       console.error("switch_to failed", err);
     } finally {

@@ -33,6 +33,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 async-trait = "0.1"
+base64 = "0.22"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 chrono = { version = "0.4", features = ["clock", "serde"] }
 dirs = "5"
@@ -50,12 +51,10 @@ time = "=0.3.47"
 # Dynamic tray-icon rendering (percentage drawn with a built-in 5x7 bitmap font).
 tiny-skia = "0.11"
 
-# Used by the Linux encrypted-file fallback (machine-bound key generation).
-rand = "0.8"
-
-# Linux encrypted-file fallback for the secret store (age encryption).
-[target.'cfg(target_os = "linux")'.dependencies]
+# Encrypted-file secret fallback: Linux (no Secret Service) and Windows
+# (blobs over the Credential Manager size limit, e.g. Codex's auth.json).
 age = "0.10"
+rand = "0.8"
 
 [features]
 default = []

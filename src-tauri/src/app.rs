@@ -2,21 +2,21 @@
 //! pipeline with per-account backoff, the action handlers, and threshold
 //! notifications. Logic mirrors PitStop's `AppDelegate`, now OS-agnostic.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use anyhow::Result;
 use chrono::{DateTime, Utc};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::{Mutex, RwLock};
 
-use crate::credentials::CredentialBlob;
 use crate::notify::Notifier;
 use crate::prefs::{IndicatorMetric, IndicatorPrefs, IndicatorStyle};
 use crate::profile_store::{Profile, ProfileStore};
+use crate::provider::Provider;
+use crate::source::secret_key;
 use crate::ui_events::{self, UiSnapshot};
-use crate::usage_api::{self, UsageError, UsageReport};
+use crate::usage_api::{UsageError, UsageReport};
 
 /// Regular refresh cadence.
 pub const REFRESH_INTERVAL: Duration = Duration::from_secs(120);
@@ -28,10 +28,18 @@ const BACKOFF_CAP: Duration = Duration::from_secs(900);
 const UNAUTHORIZED_BACKOFF: Duration = Duration::from_secs(3600);
 
 /// Mutable application state. Single source of truth; guarded by an async lock.
+///
+/// All per-account maps are keyed by `Profile::key()` (the secret-store key),
+/// which is the account email for Anthropic and `"<provider>:<email>"` for
+/// other providers, so accounts never collide across providers.
 #[derive(Default)]
 pub struct AppState {
     pub profiles: Vec<Profile>,
-    pub active_email: Option<String>,
+    /// The "primary" active account driving the tray indicator/tooltip — the
+    /// active account (any provider) with the highest utilization.
+    pub active_primary: Option<(Provider, String)>,
+    /// Keys of every currently-active account (one per provider).
+    pub active_keys: HashSet<String>,
     /// Last **successful** report per account (kept on failure → staleness).
     pub usage: HashMap<String, UsageReport>,
     pub fetch_error: HashMap<String, String>,
@@ -48,10 +56,20 @@ pub struct AppState {
 }
 
 impl AppState {
+    /// Secret-store/cache key of the primary active account.
+    pub fn primary_key(&self) -> Option<String> {
+        self.active_primary.as_ref().map(|(p, e)| secret_key(*p, e))
+    }
+
+    /// Email of the primary active account (for the snapshot + tooltip).
+    pub fn primary_email(&self) -> Option<&str> {
+        self.active_primary.as_ref().map(|(_, e)| e.as_str())
+    }
+
     /// The utilization figure the tray should display, per the metric pref.
     pub fn indicator_utilization(&self) -> Option<f64> {
-        let email = self.active_email.as_ref()?;
-        let report = self.usage.get(email)?;
+        let key = self.primary_key()?;
+        let report = self.usage.get(&key)?;
         match self.prefs.metric {
             IndicatorMetric::Binding => report.max_utilization(),
             IndicatorMetric::FiveHour => report.five_hour.utilization,
@@ -59,18 +77,17 @@ impl AppState {
         }
     }
 
-    /// The active account currently shows stale data (has a report *and* a live
-    /// fetch error).
+    /// The primary account currently shows stale data (report *and* live error).
     pub fn active_is_stale(&self) -> bool {
-        match &self.active_email {
-            Some(e) => self.usage.contains_key(e) && self.fetch_error.contains_key(e),
+        match self.primary_key() {
+            Some(k) => self.usage.contains_key(&k) && self.fetch_error.contains_key(&k),
             None => false,
         }
     }
 
-    fn is_in_backoff(&self, email: &str, now: Instant) -> bool {
+    fn is_in_backoff(&self, key: &str, now: Instant) -> bool {
         self.next_fetch_allowed
-            .get(email)
+            .get(key)
             .map(|gate| *gate > now)
             .unwrap_or(false)
     }
@@ -162,110 +179,110 @@ async fn run_refresh_once(ctrl: &Controller, app: &AppHandle) {
         ctrl.state.write().await.last_top_level_error = None;
     }
 
-    // 2) Reload profiles + active email.
-    let (profiles, active_email) = {
+    // 2) Reload profiles + the active account per provider.
+    let (profiles, active) = {
         let profiles = ctrl.store.load().unwrap_or_default();
-        let active = ctrl.store.active_email().unwrap_or(None);
+        let active = ctrl.store.active_accounts().await;
+        let active_keys: HashSet<String> = active.iter().map(|(p, e)| secret_key(*p, e)).collect();
         let mut s = ctrl.state.write().await;
         s.profiles = profiles.clone();
-        s.active_email = active.clone();
+        s.active_keys = active_keys;
         (profiles, active)
     };
+    let active_keys: HashSet<String> = active.iter().map(|(p, e)| secret_key(*p, e)).collect();
 
     // 3) Per-profile fetch (skipping accounts inside their backoff window).
     for profile in &profiles {
+        let provider = profile.provider;
         let email = profile.email.clone();
-        let is_active = active_email.as_deref() == Some(email.as_str());
+        let key = profile.key();
+        let is_active = active_keys.contains(&key);
 
-        if ctrl.state.read().await.is_in_backoff(&email, now) {
+        if ctrl.state.read().await.is_in_backoff(&key, now) {
             continue;
         }
 
-        match refresh_one(ctrl, &email, is_active, now_ms).await {
-            Ok(report) => {
+        match refresh_one(ctrl, provider, &email, is_active, now_ms).await {
+            Ok(fetched) => {
+                // Persist a refreshed (inactive) blob.
+                if let Some(blob) = fetched.refreshed_blob {
+                    if let Err(e) = ctrl
+                        .store
+                        .store_refreshed_blob(provider, &email, &blob)
+                        .await
+                    {
+                        tracing::warn!(error = %e, "failed to persist refreshed blob");
+                    }
+                }
                 let mut s = ctrl.state.write().await;
-                s.usage.insert(email.clone(), report);
-                s.fetch_error.remove(&email);
-                s.failure_count.remove(&email);
-                s.next_fetch_allowed.remove(&email);
+                s.usage.insert(key.clone(), fetched.report);
+                s.fetch_error.remove(&key);
+                s.failure_count.remove(&key);
+                s.next_fetch_allowed.remove(&key);
             }
-            Err(err) => apply_error(ctrl, &email, err).await,
+            Err(err) => apply_error(ctrl, &key, err).await,
         }
     }
 
-    // 4) Finish: stamp, re-render tray, push snapshot, run thresholds.
-    ctrl.state.write().await.last_refresh = Some(Utc::now());
+    // 4) Pick the primary active account (highest utilization), stamp, render.
+    {
+        let mut s = ctrl.state.write().await;
+        let primary = pick_primary(&s, &active);
+        s.active_primary = primary;
+        s.last_refresh = Some(Utc::now());
+    }
     update_tray(app, ctrl).await;
     emit_snapshot(app, ctrl).await;
     check_thresholds(ctrl, app).await;
 }
 
-/// Fetch usage for one account, refreshing its token first if needed.
-async fn refresh_one(
-    ctrl: &Controller,
-    email: &str,
-    is_active: bool,
-    now_ms: i64,
-) -> Result<UsageReport, UsageError> {
-    let access = fresh_credentials(ctrl, email, is_active, now_ms).await?;
-    usage_api::fetch_usage(&access).await
+/// Choose the active account that should drive the tray indicator: the one with
+/// the highest known utilization, ties broken by provider order (Anthropic
+/// first). Falls back to the first active account when no usage is known yet.
+fn pick_primary(s: &AppState, active: &[(Provider, String)]) -> Option<(Provider, String)> {
+    active
+        .iter()
+        .max_by(|a, b| {
+            let ua = s
+                .usage
+                .get(&secret_key(a.0, &a.1))
+                .and_then(|r| r.max_utilization())
+                .unwrap_or(-1.0);
+            let ub = s
+                .usage
+                .get(&secret_key(b.0, &b.1))
+                .and_then(|r| r.max_utilization())
+                .unwrap_or(-1.0);
+            ua.partial_cmp(&ub).unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .cloned()
 }
 
-/// Return a non-expired access token for the account. For the active account we
-/// trust Claude Code to keep it fresh; for saved accounts we run the OAuth
-/// refresh grant when expired and persist the patched blob.
-async fn fresh_credentials(
+/// Fetch usage for one account via the provider-specific engine.
+async fn refresh_one(
     ctrl: &Controller,
+    provider: Provider,
     email: &str,
     is_active: bool,
     now_ms: i64,
-) -> Result<String, UsageError> {
+) -> Result<crate::engine::Fetched, UsageError> {
     let raw = ctrl
         .store
-        .blob_for(email, is_active)
+        .blob_for(provider, email, is_active)
         .await
         .map_err(|e| UsageError::Decode(e.to_string()))?
         .ok_or_else(|| UsageError::Decode("no credential blob".into()))?;
-
-    let blob = CredentialBlob::parse(&raw).map_err(|e| UsageError::Decode(e.to_string()))?;
-    let creds = blob
-        .credentials()
-        .map_err(|e| UsageError::Decode(e.to_string()))?;
-
-    // Fresh, or active (Claude Code owns the active token) → use as-is.
-    if is_active || !creds.is_expired(now_ms) {
-        return Ok(creds.access_token);
-    }
-
-    // Expired saved account: refresh via OAuth if we have a refresh token.
-    let Some(refresh) = &creds.refresh_token else {
-        return Err(UsageError::Unauthorized);
-    };
-    let fresh = usage_api::refresh_token(refresh, now_ms).await?;
-    // Preserve subscription/tier metadata the refresh endpoint doesn't return.
-    let merged = usage_api::OAuthCredentials {
-        subscription_type: creds.subscription_type.clone(),
-        rate_limit_tier: creds.rate_limit_tier.clone(),
-        ..fresh.clone()
-    };
-    let patched = blob
-        .patching(&merged)
-        .map_err(|e| UsageError::Decode(e.to_string()))?;
-    ctrl.store
-        .store_refreshed_blob(email, is_active, &patched.to_bytes())
-        .await
-        .map_err(|e| UsageError::Decode(e.to_string()))?;
-    Ok(merged.access_token)
+    crate::engine::fetch(provider, &raw, is_active, now_ms).await
 }
 
-/// Record an error and set the appropriate backoff gate.
-async fn apply_error(ctrl: &Controller, email: &str, err: UsageError) {
+/// Record an error and set the appropriate backoff gate (keyed by account key).
+async fn apply_error(ctrl: &Controller, key: &str, err: UsageError) {
     let mut s = ctrl.state.write().await;
-    s.fetch_error.insert(email.to_string(), err.to_string());
+    s.fetch_error.insert(key.to_string(), err.to_string());
 
     match err {
         UsageError::RateLimited(retry_after) => {
-            let n = s.failure_count.entry(email.to_string()).or_insert(0);
+            let n = s.failure_count.entry(key.to_string()).or_insert(0);
             *n += 1;
             let backoff = match retry_after {
                 Some(secs) => Duration::from_secs(secs),
@@ -276,11 +293,11 @@ async fn apply_error(ctrl: &Controller, email: &str, err: UsageError) {
                 }
             };
             s.next_fetch_allowed
-                .insert(email.to_string(), Instant::now() + backoff);
+                .insert(key.to_string(), Instant::now() + backoff);
         }
         UsageError::Unauthorized => {
             s.next_fetch_allowed
-                .insert(email.to_string(), Instant::now() + UNAUTHORIZED_BACKOFF);
+                .insert(key.to_string(), Instant::now() + UNAUTHORIZED_BACKOFF);
         }
         // Other errors: record the message, no backoff.
         _ => {}
@@ -410,16 +427,16 @@ async fn check_thresholds(ctrl: &Controller, app: &AppHandle) {
     // crossing test can't race.
     let message = {
         let mut s = ctrl.state.write().await;
-        let Some(active) = s.active_email.clone() else {
+        let (Some(key), Some((provider, _))) = (s.primary_key(), s.active_primary.clone()) else {
             return;
         };
         // Need a current, error-free report.
-        if s.fetch_error.contains_key(&active) {
+        if s.fetch_error.contains_key(&key) {
             return;
         }
         let Some(pct) = s
             .usage
-            .get(&active)
+            .get(&key)
             .and_then(|r| r.max_utilization())
             .map(|u| u * 100.0)
         else {
@@ -427,19 +444,23 @@ async fn check_thresholds(ctrl: &Controller, app: &AppHandle) {
         };
 
         let bucket = threshold_bucket(pct);
-        let prev = s.notified_bucket.get(&active).copied().unwrap_or(0);
+        let prev = s.notified_bucket.get(&key).copied().unwrap_or(0);
         // Always record the current bucket (so a later drop+rise re-notifies).
-        s.notified_bucket.insert(active.clone(), bucket);
+        s.notified_bucket.insert(key.clone(), bucket);
 
         if bucket <= prev {
             return; // not an upward crossing
         }
 
-        let report = s.usage.get(&active).expect("checked above");
+        let report = s.usage.get(&key).expect("checked above");
         let reset = ui_events::binding_reset_text(report);
-        let pit = best_pit(&s, &active);
+        let pit = best_pit(&s, &key);
         Some((
-            format!("Claude usage at {}%", pct.round() as i64),
+            format!(
+                "{} usage at {}%",
+                provider.display_name(),
+                pct.round() as i64
+            ),
             format!("Active account {reset}. {pit}"),
         ))
     };
@@ -460,16 +481,17 @@ fn threshold_bucket(pct: f64) -> u8 {
 }
 
 /// Find the "best pit": the saved non-active account with the lowest
-/// `max_utilization`, and phrase the advice line.
-fn best_pit(s: &AppState, active: &str) -> String {
+/// `max_utilization`, and phrase the advice line. `active_key` is the primary
+/// active account's cache key.
+fn best_pit(s: &AppState, active_key: &str) -> String {
     let mut best: Option<(&str, f64)> = None;
     let mut any_other = false;
     for p in &s.profiles {
-        if p.email == active {
+        if p.key() == active_key {
             continue;
         }
         any_other = true;
-        if let Some(report) = s.usage.get(&p.email) {
+        if let Some(report) = s.usage.get(&p.key()) {
             if let Some(u) = report.max_utilization() {
                 if best.map(|(_, bu)| u < bu).unwrap_or(true) {
                     best = Some((p.email.as_str(), u));

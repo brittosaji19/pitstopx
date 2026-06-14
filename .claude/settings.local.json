@@ -24,7 +24,14 @@
       "Read(//c/Program Files/Microsoft Visual Studio/18/**)",
       "Bash(rm -f build-win.log)",
       "Bash(powershell -ExecutionPolicy Bypass -File scripts/build-windows.ps1)",
-      "Bash(echo \"started build, pid $!\")"
+      "Bash(echo \"started build, pid $!\")",
+      "WebSearch",
+      "WebFetch(domain:developers.openai.com)",
+      "WebFetch(domain:api.github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(./target/release/pitstopx.exe --print-paths)",
+      "Bash(timeout 60 ./target/release/pitstopx.exe --check)",
+      "Bash(export RUSTUP_TOOLCHAIN=1.88.0)"
     ]
   }
 }

@@ -7,7 +7,10 @@ pub mod actions;
 pub mod app;
 pub mod claude_source;
 pub mod cli;
+pub mod codex_source;
+pub mod codex_usage;
 pub mod credentials;
+pub mod engine;
 pub mod format;
 pub mod notify;
 pub mod paths;
@@ -15,6 +18,7 @@ pub mod prefs;
 pub mod profile_store;
 pub mod provider;
 pub mod secrets;
+pub mod source;
 pub mod tray;
 pub mod ui_events;
 pub mod usage_api;
@@ -29,11 +33,12 @@ use tauri_plugin_autostart::MacosLauncher;
 use app::{Controller, SharedController};
 use profile_store::ProfileStore;
 
-/// Build the `Controller` from the two platform abstractions.
+/// Build the `Controller` from the platform abstractions (secret store + every
+/// provider's account source).
 pub fn build_controller() -> anyhow::Result<SharedController> {
     let secrets = secrets::build()?;
-    let source = claude_source::build()?;
-    let store = ProfileStore::new(secrets, source);
+    let sources = source::build_all()?;
+    let store = ProfileStore::new(secrets, sources);
     Ok(Arc::new(Controller::new(store)))
 }
 
@@ -144,8 +149,14 @@ fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
         } else if id == ids::QUIT {
             actions::do_quit(&app);
             Ok(())
-        } else if let Some(email) = id.strip_prefix(ids::REMOVE_PREFIX) {
-            actions::do_remove_account(&app, email).await
+        } else if let Some(rest) = id.strip_prefix(ids::REMOVE_PREFIX) {
+            // rest = "<provider_id>:<email>"
+            match rest.split_once(':') {
+                Some((pid, email)) => {
+                    actions::do_remove_account(&app, provider::Provider::from_id(pid), email).await
+                }
+                None => Ok(()),
+            }
         } else if let Some(key) = id.strip_prefix(ids::STYLE_PREFIX) {
             match prefs::IndicatorStyle::from_key(key) {
                 Some(s) => actions::do_set_indicator_style(&app, s).await,
@@ -266,7 +277,11 @@ fn position_near_tray(app: &AppHandle, win: &WebviewWindow) {
     // the top of the monitor, open below instead. Always clamp.
     let above = cy - wh - margin;
     let below = cy + margin;
-    let y_anchor = if above >= mon_y + margin { above } else { below };
+    let y_anchor = if above >= mon_y + margin {
+        above
+    } else {
+        below
+    };
     let y = y_anchor.clamp(mon_y + margin, mon_y + mon_h - wh - margin);
 
     let _ = win.set_position(Position::Physical(PhysicalPosition { x, y }));
