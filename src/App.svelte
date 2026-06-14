@@ -56,7 +56,7 @@
       <div class="banner" role="alert">⚠ {snapshot.lastTopLevelError}</div>
     {/if}
     <div class="rows">
-      {#each snapshot.rows as row (row.email)}
+      {#each snapshot.rows as row (row.providerId + ":" + row.email)}
         <AccountRow {row} />
       {/each}
     </div>
