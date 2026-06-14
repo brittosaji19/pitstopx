@@ -10,8 +10,10 @@ account row shows its provider badge; usage, refresh, and switching are handled
 per provider behind a common `AccountSource` seam, so adding more providers is a
 localized change.
 
-PitStopX is the portable successor to the macOS-only **PitStop** (Swift/AppKit),
-built on **Tauri v2 (Rust core + native WebView)**. See
+PitStopX is a cross-platform port of the macOS-only
+**[PitStop](https://github.com/Livin21/pitstop)** (Swift/AppKit) by
+[Livin21](https://github.com/Livin21), rebuilt on **Tauri v2 (Rust core + native
+WebView)** to also run on Windows and Linux. See
 [`TECHNICAL_SPEC.md`](TECHNICAL_SPEC.md) for the full design.
 
 ---
@@ -132,6 +134,13 @@ cargo fmt --check              # formatting
 
 See [`TECHNICAL_SPEC.md`](TECHNICAL_SPEC.md) §14 for the full model and
 trade-offs.
+
+## Credits
+
+PitStopX is a cross-platform port of
+**[PitStop](https://github.com/Livin21/pitstop)** by
+[Livin21](https://github.com/Livin21) — the original macOS-only menu-bar app that
+inspired this project. Thanks for the idea and design.
 
 ## License
 
