@@ -17,6 +17,9 @@ on:
 
 jobs:
   build:
+    # tauri-action creates/updates the (draft) release and uploads assets.
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
