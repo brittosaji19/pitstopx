@@ -9,6 +9,15 @@
 
   let snapshot: UiSnapshot | null = null;
   let unlisten: UnlistenFn | null = null;
+  let actionMsg = "";
+  let busy = false;
+  let msgTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function flash(msg: string) {
+    actionMsg = msg;
+    clearTimeout(msgTimer);
+    msgTimer = setTimeout(() => (actionMsg = ""), 4000);
+  }
 
   onMount(async () => {
     // Subscribe before requesting, so we don't miss the reply.
@@ -23,7 +32,10 @@
     }
   });
 
-  onDestroy(() => unlisten?.());
+  onDestroy(() => {
+    unlisten?.();
+    clearTimeout(msgTimer);
+  });
 
   function formatUpdated(iso: string | null): string {
     if (!iso) return "never";
@@ -42,6 +54,23 @@
       console.error("refresh_now failed", err);
     }
   }
+
+  // Snapshot the currently-logged-in account(s) into the app so they can be
+  // switched back to later.
+  async function saveCurrent() {
+    if (busy) return;
+    busy = true;
+    flash("Saving…");
+    try {
+      await invoke("save_current");
+      flash("Saved current account ✓");
+    } catch (err) {
+      console.error("save_current failed", err);
+      flash(`Save failed: ${err}`);
+    } finally {
+      busy = false;
+    }
+  }
 </script>
 
 <main class="panel">
@@ -49,7 +78,7 @@
     <div class="empty">Loading…</div>
   {:else if snapshot.rows.length === 0}
     <div class="empty">
-      No accounts found — log in with <code>claude</code> first.
+      No accounts found — log in with <code>claude</code> or <code>codex</code> first.
     </div>
   {:else}
     {#if snapshot.lastTopLevelError}
@@ -63,9 +92,16 @@
   {/if}
 
   <footer class="footer">
-    <button class="refresh" on:click={refresh} title="Refresh now">↻</button>
+    <button class="action save" on:click={saveCurrent} disabled={busy} title="Save the current account so you can switch back to it later">
+      ＋ Save current
+    </button>
+    <button class="action refresh" on:click={refresh} title="Refresh now">↻</button>
     <span class="updated">
-      Updated {formatUpdated(snapshot?.lastRefresh ?? null)} · every 2 min
+      {#if actionMsg}
+        {actionMsg}
+      {:else}
+        Updated {formatUpdated(snapshot?.lastRefresh ?? null)}
+      {/if}
     </span>
   </footer>
 </main>

@@ -279,20 +279,33 @@ button.chip {
   font-size: 11px;
 }
 
-.refresh {
-  border: none;
-  background: transparent;
-  color: var(--fg-muted);
+.action {
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  color: var(--fg);
   cursor: pointer;
-  font-size: 14px;
-  padding: 0 2px;
-  line-height: 1;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  line-height: 1.3;
 }
 
-.refresh:hover {
+.action:hover {
+  border-color: var(--coral);
   color: var(--coral);
+}
+
+.action:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.action.refresh {
+  font-size: 13px;
+  padding: 3px 7px;
 }
 
 .updated {
   flex: 1;
+  text-align: right;
 }
