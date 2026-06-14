@@ -31,11 +31,11 @@ impl Provider {
         }
     }
 
-    /// Human-facing provider name shown on each account row.
+    /// Human-facing product name shown on each account row.
     pub fn display_name(self) -> &'static str {
         match self {
-            Provider::Anthropic => "Anthropic",
-            Provider::OpenAI => "OpenAI",
+            Provider::Anthropic => "Claude",
+            Provider::OpenAI => "Codex",
         }
     }
 
@@ -64,7 +64,7 @@ mod tests {
     #[test]
     fn round_trips_and_defaults() {
         assert_eq!(Provider::Anthropic.id(), "anthropic");
-        assert_eq!(Provider::Anthropic.display_name(), "Anthropic");
+        assert_eq!(Provider::Anthropic.display_name(), "Claude");
         assert_eq!(Provider::from_id("anthropic"), Provider::Anthropic);
         assert_eq!(Provider::from_id("nope"), Provider::default());
     }
