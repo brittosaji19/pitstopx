@@ -48,8 +48,18 @@ pub async fn do_switch_to(app: &AppHandle, provider: Provider, email: &str) -> C
 /// account once the user finishes.
 pub async fn do_login(app: &AppHandle, provider: Provider) -> CmdResult {
     let ctrl = ctrl(app);
-    // Snapshot the current account(s) so a switch-back is always possible.
+    // Snapshot the current account(s) so a switch-back is always possible. This
+    // only reads the machine credential, so the outgoing account is preserved
+    // before we clear it below.
     let _ = ctrl.store.capture_current().await;
+
+    // Remove the live credential before launching the login: some providers
+    // invalidate or reuse whatever is already on disk when a new login starts,
+    // which would corrupt the outgoing account. Abort if we can't clear it.
+    ctrl.store
+        .clear_live(provider)
+        .await
+        .map_err(|e| e.to_string())?;
 
     crate::login::launch(provider).map_err(|e| e.to_string())?;
 

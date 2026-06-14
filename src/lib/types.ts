@@ -18,6 +18,8 @@ export interface AccountRowDTO {
   modelsLine: string | null; // "Opus wk 12% · Sonnet wk 10% · Extra 4%"
   statusLine: string | null; // error / stale / loading
   switchable: boolean;
+  removable: boolean; // inactive (saved) accounts can be removed
+  needsReauth: boolean; // last fetch was unauthorized — offer re-auth
 }
 
 export interface UsageBarDTO {

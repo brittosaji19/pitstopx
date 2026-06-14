@@ -38,6 +38,10 @@ pub trait AccountSource: Send + Sync {
     /// where the provider keeps it separately (Claude's `~/.claude.json`).
     async fn write_live(&self, blob: &[u8], identity: &Value) -> Result<()>;
 
+    /// Remove the live credential from the machine, logging the provider's CLI
+    /// out. A missing credential is not an error.
+    async fn clear_live(&self) -> Result<()>;
+
     /// Human-readable location of the live credentials (for `--print-paths`).
     fn describe(&self) -> String;
 }

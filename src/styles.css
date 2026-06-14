@@ -188,6 +188,44 @@ button.chip {
   cursor: default;
 }
 
+/* ---------------- Per-account actions ---------------- */
+
+.actions {
+  margin-top: 6px;
+  display: flex;
+  gap: 6px;
+}
+
+.chip:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.chip.reauth {
+  border-color: var(--orange);
+  background: transparent;
+  color: var(--orange);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.chip.reauth:hover:not(:disabled) {
+  background: var(--orange);
+  color: #fff;
+}
+
+.chip.remove {
+  border-color: var(--red);
+  background: transparent;
+  color: var(--red);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.chip.remove:hover:not(:disabled),
+.chip.remove.confirm {
+  background: var(--red);
+  color: #fff;
+}
+
 /* ---------------- Usage bars ---------------- */
 
 .bars {

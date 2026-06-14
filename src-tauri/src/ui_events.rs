@@ -7,7 +7,7 @@ use serde::Serialize;
 
 use crate::app::AppState;
 use crate::format;
-use crate::usage_api::{BindingWindow, UsageReport};
+use crate::usage_api::{BindingWindow, UsageError, UsageReport};
 
 /// Event name the panel subscribes to.
 pub const SNAPSHOT_EVENT: &str = "pitstopx://snapshot";
@@ -39,6 +39,10 @@ pub struct AccountRowDto {
     pub models_line: Option<String>,
     pub status_line: Option<String>,
     pub switchable: bool,
+    /// Inactive (saved) accounts can be removed from the app store.
+    pub removable: bool,
+    /// The last fetch failed with an auth error — offer re-authentication.
+    pub needs_reauth: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -55,6 +59,8 @@ impl UiSnapshot {
     /// ascending `max_utilization` (emptiest next).
     pub fn build(state: &AppState) -> Self {
         let now = Local::now();
+        // Compared per row to flag accounts that need re-authentication.
+        let unauthorized = UsageError::Unauthorized.to_string();
 
         let mut rows: Vec<AccountRowDto> = state
             .profiles
@@ -76,6 +82,8 @@ impl UiSnapshot {
                     models_line: report.and_then(models_line),
                     status_line: status_line(state, &key, report, error, now),
                     switchable: !is_active,
+                    removable: !is_active,
+                    needs_reauth: error.is_some_and(|e| *e == unauthorized),
                 }
             })
             .collect();

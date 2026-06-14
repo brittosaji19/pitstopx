@@ -149,6 +149,31 @@ impl AccountSource for ClaudeSource {
         Ok(())
     }
 
+    async fn clear_live(&self) -> Result<()> {
+        // 1) Delete the credential blob (keychain item / file).
+        match &self.blob {
+            #[cfg(target_os = "macos")]
+            BlobLocation::Keychain => {
+                use tokio::process::Command;
+                // Non-zero exit just means "no such item" → already cleared.
+                let _ = Command::new("/usr/bin/security")
+                    .args(["delete-generic-password", "-s", CLAUDE_KEYCHAIN_SERVICE])
+                    .status()
+                    .await
+                    .context("deleting Claude Code keychain item")?;
+            }
+            #[cfg(not(target_os = "macos"))]
+            BlobLocation::File(path) => match std::fs::remove_file(path) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e).with_context(|| format!("removing {}", path.display())),
+            },
+        }
+        // 2) Clear the stored identity so `read_live` reports logged-out.
+        ClaudeConfig::at(&self.identity).clear_oauth_account()?;
+        Ok(())
+    }
+
     fn describe(&self) -> String {
         match &self.blob {
             #[cfg(target_os = "macos")]

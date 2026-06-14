@@ -70,6 +70,16 @@ impl AccountSource for CodexSource {
         crate::claude_source::atomic_write(&self.path, blob)
     }
 
+    async fn clear_live(&self) -> Result<()> {
+        // Remove auth.json entirely so `codex` starts a clean login. A missing
+        // file is already the desired state.
+        match std::fs::remove_file(&self.path) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e).with_context(|| format!("removing {}", self.path.display())),
+        }
+    }
+
     fn describe(&self) -> String {
         format!("file {}", self.path.display())
     }

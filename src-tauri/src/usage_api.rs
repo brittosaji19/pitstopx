@@ -21,6 +21,11 @@ const HTTP_TIMEOUT: Duration = Duration::from_secs(15);
 pub enum UsageError {
     #[error("unauthorized")]
     Unauthorized,
+    /// We deliberately declined to refresh an inactive account's token (rotating
+    /// it would revoke the copy the provider's own CLI relies on). Surfaced as a
+    /// benign "stale" state, not a hard failure.
+    #[error("paused while inactive")]
+    RefreshSkipped,
     /// 429; carries the parsed `Retry-After` (seconds) when present.
     #[error("rate limited")]
     RateLimited(Option<u64>),

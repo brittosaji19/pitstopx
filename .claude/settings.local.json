@@ -31,7 +31,8 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(./target/release/pitstopx.exe --print-paths)",
       "Bash(timeout 60 ./target/release/pitstopx.exe --check)",
-      "Bash(export RUSTUP_TOOLCHAIN=1.88.0)"
+      "Bash(export RUSTUP_TOOLCHAIN=1.88.0)",
+      "PowerShell(Get-Process -Name pitstopx -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Milliseconds 400; $env:Path = \"C:\\\\Node\\\\node-v24.16.0-win-arm64;C:\\\\Program Files\\\\LLVM\\\\bin;$env:Path\"; powershell -ExecutionPolicy Bypass -File C:\\\\Users\\\\britto\\\\PitStopX\\\\scripts\\\\build-windows.ps1 -Bundles nsis)"
     ]
   }
 }

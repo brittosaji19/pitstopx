@@ -176,6 +176,23 @@ impl ClaudeConfig {
         let bytes = serde_json::to_vec_pretty(&root)?;
         crate::claude_source::atomic_write(&self.path, &bytes)
     }
+
+    /// Remove `oauthAccount` (logging the account out), preserving every other
+    /// key. A missing file or key is a no-op.
+    pub fn clear_oauth_account(&self) -> Result<()> {
+        if !self.path.exists() {
+            return Ok(());
+        }
+        let mut root = self.load()?;
+        let Some(obj) = root.as_object_mut() else {
+            return Ok(());
+        };
+        if obj.remove("oauthAccount").is_none() {
+            return Ok(());
+        }
+        let bytes = serde_json::to_vec_pretty(&root)?;
+        crate::claude_source::atomic_write(&self.path, &bytes)
+    }
 }
 
 #[cfg(test)]
@@ -218,6 +235,36 @@ mod tests {
         assert_eq!(v["claudeAiOauth"]["expiresAt"], 2_000_000);
         // mcpOAuth survives untouched.
         assert_eq!(v["mcpOAuth"]["atlassian"]["token"], "keep-me");
+    }
+
+    #[test]
+    fn clear_oauth_account_removes_key_preserving_others() {
+        // Unique temp path; no tempfile dep in this crate.
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("pitstopx-claude-{nanos}.json"));
+        std::fs::write(
+            &path,
+            serde_json::to_vec(&serde_json::json!({
+                "oauthAccount": { "emailAddress": "dev@example.com" },
+                "numStartups": 7
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let cfg = ClaudeConfig::at(&path);
+        cfg.clear_oauth_account().unwrap();
+
+        let v: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert!(v.get("oauthAccount").is_none());
+        assert_eq!(v["numStartups"], 7);
+        // Idempotent: clearing again (key already gone) is a no-op.
+        cfg.clear_oauth_account().unwrap();
+
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

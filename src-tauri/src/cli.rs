@@ -109,11 +109,16 @@ pub async fn check() -> Result<()> {
                 let five = format::percent(fetched.report.five_hour.utilization);
                 let week = format::percent(fetched.report.seven_day.utilization);
                 println!("  5-hour {five} · weekly {week}");
-                // Persist a refreshed inactive blob so the next run is cheap.
+                // Persist a refreshed inactive blob so the next run is cheap. The
+                // old token is already revoked server-side, so a failed write
+                // leaves the saved login broken — say so loudly.
                 if let Some(new_blob) = fetched.refreshed_blob {
-                    let _ = store
+                    if let Err(e) = store
                         .store_refreshed_blob(p.provider, &p.email, &new_blob)
-                        .await;
+                        .await
+                    {
+                        println!("  ⚠ could not save refreshed login ({e}) — re-add this account");
+                    }
                 }
             }
             Err(e) => println!("  — usage error: {e}"),

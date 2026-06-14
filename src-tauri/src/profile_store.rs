@@ -250,6 +250,13 @@ impl ProfileStore {
         Ok(())
     }
 
+    /// Delete the live (machine) credential for a provider, logging its CLI out.
+    /// Saved copies in the secret store are kept. Used before a new login so the
+    /// provider can't invalidate or reuse the outgoing credential.
+    pub async fn clear_live(&self, provider: Provider) -> Result<()> {
+        self.source_for(provider)?.clear_live().await
+    }
+
     /// Delete a saved account: secret item + profile entry.
     pub async fn remove(&self, provider: Provider, email: &str) -> Result<()> {
         self.secrets.delete(&secret_key(provider, email)).await?;

@@ -204,14 +204,29 @@ async fn run_refresh_once(ctrl: &Controller, app: &AppHandle) {
 
         match refresh_one(ctrl, provider, &email, is_active, now_ms).await {
             Ok(fetched) => {
-                // Persist a refreshed (inactive) blob.
+                // A refreshed blob means the provider rotated the token; the old
+                // one is now revoked server-side. Persisting the new one is
+                // mandatory — if the write fails we've burned the saved login, so
+                // surface it loudly and back off rather than silently dropping it.
                 if let Some(blob) = fetched.refreshed_blob {
                     if let Err(e) = ctrl
                         .store
                         .store_refreshed_blob(provider, &email, &blob)
                         .await
                     {
-                        tracing::warn!(error = %e, "failed to persist refreshed blob");
+                        tracing::error!(
+                            error = %e, %email,
+                            "failed to persist refreshed token; saved login is now stale"
+                        );
+                        let mut s = ctrl.state.write().await;
+                        s.usage.insert(key.clone(), fetched.report);
+                        s.fetch_error.insert(
+                            key.clone(),
+                            "could not save refreshed login — re-add this account".to_string(),
+                        );
+                        s.next_fetch_allowed
+                            .insert(key.clone(), Instant::now() + UNAUTHORIZED_BACKOFF);
+                        continue;
                     }
                 }
                 let mut s = ctrl.state.write().await;
