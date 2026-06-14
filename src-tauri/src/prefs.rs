@@ -9,21 +9,16 @@ pub const KEY_STYLE: &str = "indicatorStyle";
 pub const KEY_METRIC: &str = "indicatorMetric";
 
 /// How the tray icon presents the figure.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum IndicatorStyle {
     /// Gauge glyph + `NN%` (default).
+    #[default]
     IconAndPercent,
     /// Glyph only, no number.
     IconOnly,
     /// Number-only glyph, no gauge motif.
     PercentOnly,
-}
-
-impl Default for IndicatorStyle {
-    fn default() -> Self {
-        Self::IconAndPercent
-    }
 }
 
 impl IndicatorStyle {
@@ -51,19 +46,14 @@ impl IndicatorStyle {
 }
 
 /// Which usage window the tray figure reflects.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum IndicatorMetric {
     /// `max(5-hour, weekly)` (default, "Highest").
+    #[default]
     Binding,
     FiveHour,
     Weekly,
-}
-
-impl Default for IndicatorMetric {
-    fn default() -> Self {
-        Self::Binding
-    }
 }
 
 impl IndicatorMetric {
