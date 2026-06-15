@@ -2,16 +2,15 @@ name: Release builds
 
 # Produces installable bundles for Windows (x64 + arm64), macOS (Apple Silicon +
 # Intel, .dmg) and Debian/Ubuntu (deb).
-# - Runs on demand and on every tag push (`v*`) / GitHub release.
-# - On a tag/release, bundles are attached to a (draft) GitHub release.
-# - Always uploads the bundles as workflow artifacts so dispatch/tag runs are
+# - Runs only manually: a published GitHub release, or a manual dispatch.
+#   (Does NOT auto-trigger on `v*` tag pushes.)
+# - On a release, bundles are attached to that (draft) release.
+# - Always uploads the bundles as workflow artifacts so dispatch runs are
 #   downloadable without a release.
 #
 # Test/lint gating lives in ci.yml; this workflow is build-only.
 
 on:
-  push:
-    tags: ["v*"]
   release:
     types: [created]
   workflow_dispatch:
