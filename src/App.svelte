@@ -97,10 +97,10 @@
     <SettingsView on:close={() => (view = "accounts")} />
   {:else}
   {#if !snapshot}
-    <div class="empty">Loading…</div>
+    <div class="empty"><span>Loading…</span></div>
   {:else if snapshot.rows.length === 0}
     <div class="empty">
-      No accounts found — log in with <code>claude</code> or <code>codex</code> first.
+      <span>No accounts found — log in with <code>claude</code> or <code>codex</code> first.</span>
     </div>
   {:else}
     {#if snapshot.lastTopLevelError}
