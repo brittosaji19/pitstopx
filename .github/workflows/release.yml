@@ -37,7 +37,7 @@ jobs:
             target: aarch64-apple-darwin
             args: "--target aarch64-apple-darwin --bundles dmg"
           - name: macos-x64
-            os: macos-13 # Intel
+            os: macos-14 # Intel
             target: x86_64-apple-darwin
             args: "--target x86_64-apple-darwin --bundles dmg"
           - name: debian-x64

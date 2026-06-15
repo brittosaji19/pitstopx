@@ -304,6 +304,10 @@ pub fn tooltip(state: &AppState) -> String {
 
 /// Menu item ids (stable strings matched in the event handler).
 pub mod ids {
+    /// Open the popover panel — the reliable way to reach the UI on Linux, where
+    /// the appindicator tray shows its menu on click and never emits a left-click
+    /// event for `on_tray_icon_event`.
+    pub const SHOW: &str = "show";
     pub const SAVE_CURRENT: &str = "save_current";
     pub const REFRESH_NOW: &str = "refresh_now";
     pub const LAUNCH_AT_LOGIN: &str = "launch_at_login";
@@ -426,6 +430,13 @@ pub fn build_menu(app: &AppHandle, model: &MenuModel, launch_at_login: bool) -> 
         .unwrap_or_else(|| "never".into());
 
     let menu = MenuBuilder::new(app)
+        // Primary way to open the UI on Linux (tray click only shows this menu).
+        .item(
+            &MenuItemBuilder::new("Open PitStopX")
+                .id(ids::SHOW)
+                .build(app)?,
+        )
+        .separator()
         .item(&login_sub)
         .item(
             &MenuItemBuilder::new("Save Current Account")

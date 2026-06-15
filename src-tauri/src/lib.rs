@@ -136,6 +136,15 @@ pub fn run() {
 /// Dispatch native-menu clicks to the matching action.
 fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
     let id = event.id().0.clone();
+
+    // Showing the popover touches the window (GTK on Linux) and must run on the
+    // main thread, where this menu callback already is — handle it here instead
+    // of on the async runtime thread.
+    if id == tray::ids::SHOW {
+        show_popover(app);
+        return;
+    }
+
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         use tray::ids;
