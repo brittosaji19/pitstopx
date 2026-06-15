@@ -329,6 +329,8 @@ pub struct MenuModel {
     pub accounts: Vec<(Provider, String, bool)>,
     pub prefs: IndicatorPrefs,
     pub last_refresh: Option<chrono::DateTime<chrono::Utc>>,
+    /// Global open-popover hotkey, shown as the "Open PitStopX" accelerator.
+    pub shortcut: String,
 }
 
 impl MenuModel {
@@ -347,6 +349,7 @@ impl MenuModel {
                 .collect(),
             prefs: state.prefs,
             last_refresh: state.last_refresh,
+            shortcut: state.shortcut.clone(),
         }
     }
 }
@@ -429,13 +432,16 @@ pub fn build_menu(app: &AppHandle, model: &MenuModel, launch_at_login: bool) -> 
         .map(|t| crate::format::updated(t.with_timezone(&chrono::Local)))
         .unwrap_or_else(|| "never".into());
 
+    // Primary way to open the UI on Linux (tray click only shows this menu).
+    // The configured hotkey is shown beside it as the accelerator.
+    let mut open_item = MenuItemBuilder::new("Open PitStopX").id(ids::SHOW);
+    if !model.shortcut.is_empty() {
+        open_item = open_item.accelerator(&model.shortcut);
+    }
+    let open_item = open_item.build(app)?;
+
     let menu = MenuBuilder::new(app)
-        // Primary way to open the UI on Linux (tray click only shows this menu).
-        .item(
-            &MenuItemBuilder::new("Open PitStopX")
-                .id(ids::SHOW)
-                .build(app)?,
-        )
+        .item(&open_item)
         .separator()
         .item(&login_sub)
         .item(

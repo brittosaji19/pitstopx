@@ -55,6 +55,8 @@ pub struct AppState {
     pub prefs: IndicatorPrefs,
     /// User overrides for the provider CLI executables (empty = auto-detect).
     pub cli_paths: crate::prefs::CliPaths,
+    /// Global hotkey accelerator to open the popover (empty = none).
+    pub shortcut: String,
 }
 
 impl AppState {
@@ -147,9 +149,16 @@ pub async fn load_prefs(ctrl: &Controller, app: &AppHandle) {
         claude: bin(crate::prefs::KEY_CLAUDE_BIN),
         codex: bin(crate::prefs::KEY_CODEX_BIN),
     };
+    // Absent key → default shortcut; present (even empty) → use it verbatim
+    // (empty meaning the user cleared it).
+    let shortcut = match store.get(crate::prefs::KEY_SHORTCUT) {
+        Some(v) => v.as_str().unwrap_or("").to_string(),
+        None => crate::prefs::DEFAULT_SHORTCUT.to_string(),
+    };
     let mut state = ctrl.state.write().await;
     state.prefs = IndicatorPrefs { style, metric };
     state.cli_paths = cli_paths;
+    state.shortcut = shortcut;
 }
 
 // ---------------------------------------------------------------------------

@@ -28,6 +28,7 @@ export interface Settings {
   codexBin: string | null;
   claudeResolved: string | null; // effective resolved path, or null if not found
   codexResolved: string | null;
+  shortcut: string; // global open-popover hotkey accelerator (empty = none)
 }
 
 export interface UsageBarDTO {

@@ -219,6 +219,25 @@ pub struct SettingsDto {
     pub codex_bin: Option<String>,
     pub claude_resolved: Option<String>,
     pub codex_resolved: Option<String>,
+    /// Global open-popover hotkey accelerator (empty = none).
+    pub shortcut: String,
+}
+
+/// Set (and persist) the global open-popover hotkey. An empty string clears it.
+/// Re-registration is validated first; on failure the previous hotkey is kept.
+pub async fn do_set_shortcut(app: &AppHandle, accel: String) -> CmdResult {
+    let accel = accel.trim().to_string();
+    let ctrl = ctrl(app);
+    let old = ctrl.state.read().await.shortcut.clone();
+    if let Err(e) = crate::set_open_shortcut(app, Some(&old), &accel) {
+        // Registration failed — restore the previous hotkey so we keep one.
+        let _ = crate::set_open_shortcut(app, None, &old);
+        return Err(e);
+    }
+    persist_pref(app, crate::prefs::KEY_SHORTCUT, &accel);
+    ctrl.state.write().await.shortcut = accel;
+    app::rebuild_menu(app, &ctrl).await;
+    Ok(())
 }
 
 fn persist_pref(app: &AppHandle, key: &str, value: &str) {
@@ -296,7 +315,10 @@ pub async fn set_cli_path(app: AppHandle, provider: String, path: String) -> Cmd
 #[tauri::command]
 pub async fn get_settings(app: AppHandle) -> Result<SettingsDto, String> {
     let ctrl = ctrl(&app);
-    let paths = ctrl.state.read().await.cli_paths.clone();
+    let (paths, shortcut) = {
+        let s = ctrl.state.read().await;
+        (s.cli_paths.clone(), s.shortcut.clone())
+    };
     Ok(SettingsDto {
         claude_resolved: crate::login::resolve_program(
             Provider::Anthropic,
@@ -307,5 +329,11 @@ pub async fn get_settings(app: AppHandle) -> Result<SettingsDto, String> {
             .map(|p| p.display().to_string()),
         claude_bin: paths.claude,
         codex_bin: paths.codex,
+        shortcut,
     })
+}
+
+#[tauri::command]
+pub async fn set_shortcut(app: AppHandle, shortcut: String) -> CmdResult {
+    do_set_shortcut(&app, shortcut).await
 }

@@ -11,6 +11,11 @@ pub const KEY_STYLE: &str = "indicatorStyle";
 pub const KEY_METRIC: &str = "indicatorMetric";
 pub const KEY_CLAUDE_BIN: &str = "claudeBinPath";
 pub const KEY_CODEX_BIN: &str = "codexBinPath";
+pub const KEY_SHORTCUT: &str = "openShortcut";
+
+/// Global hotkey to open the popover, used until the user changes it. `CmdOrCtrl`
+/// maps to ⌘ on macOS and Ctrl elsewhere.
+pub const DEFAULT_SHORTCUT: &str = "CmdOrCtrl+Shift+U";
 
 /// User-set overrides for the provider CLI executables. `None`/empty means
 /// "auto-detect" (`PATH` + known install locations). See [`crate::login`].

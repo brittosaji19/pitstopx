@@ -64,6 +64,16 @@ pub fn run() {
             MacosLauncher::AppleScript,
             None,
         ))
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    // Open the popover on key-down (ignore the release event).
+                    if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        show_popover(app);
+                    }
+                })
+                .build(),
+        )
         .manage(controller)
         .invoke_handler(tauri::generate_handler![
             actions::switch_to,
@@ -78,6 +88,7 @@ pub fn run() {
             actions::request_snapshot,
             actions::set_cli_path,
             actions::get_settings,
+            actions::set_shortcut,
         ])
         .on_menu_event(handle_menu_event)
         .setup(|app| {
@@ -122,6 +133,11 @@ pub fn run() {
             let ctrl = app::controller(&handle);
             tauri::async_runtime::spawn(async move {
                 app::load_prefs(&ctrl, &handle).await;
+                // Register the configured global open-popover hotkey.
+                let shortcut = ctrl.state.read().await.shortcut.clone();
+                if let Err(e) = set_open_shortcut(&handle, None, &shortcut) {
+                    tracing::warn!(error = %e, "failed to register open shortcut");
+                }
                 app::update_tray(&handle, &ctrl).await;
                 app::refresh_all(ctrl.clone(), handle.clone()).await;
                 app::spawn_refresh_loop(ctrl, handle);
@@ -201,6 +217,23 @@ fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
 // ---------------------------------------------------------------------------
 // Popover window
 // ---------------------------------------------------------------------------
+
+/// (Re)register the global open-popover hotkey: unregisters `old` first, then
+/// registers `new`. An empty `new` clears the hotkey. The plugin's handler (set
+/// in `run`) shows the popover when it fires. Returns a user-facing error.
+pub fn set_open_shortcut(app: &AppHandle, old: Option<&str>, new: &str) -> Result<(), String> {
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+    let gs = app.global_shortcut();
+    if let Some(old) = old.map(str::trim).filter(|s| !s.is_empty()) {
+        let _ = gs.unregister(old);
+    }
+    let new = new.trim();
+    if new.is_empty() {
+        return Ok(());
+    }
+    gs.register(new)
+        .map_err(|e| format!("couldn't set shortcut \"{new}\": {e}"))
+}
 
 fn toggle_popover(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("popover") {
