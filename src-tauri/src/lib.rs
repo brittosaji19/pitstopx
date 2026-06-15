@@ -100,6 +100,12 @@ pub fn run() {
             TrayIconBuilder::with_id("main")
                 .icon(base_icon)
                 .tooltip("PitStopX")
+                // Left-click opens the popover; the context menu is right-click
+                // only (default is to show the menu on left-click too, notably on
+                // macOS). On Linux the appindicator tray can't deliver a
+                // left-click event, so the menu's "Open PitStopX" item is the way
+                // in there.
+                .show_menu_on_left_click(false)
                 .on_tray_icon_event(|tray, event| {
                     if let TrayIconEvent::Click {
                         button: MouseButton::Left,
