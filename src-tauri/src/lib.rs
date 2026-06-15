@@ -12,6 +12,8 @@ pub mod codex_usage;
 pub mod credentials;
 pub mod engine;
 pub mod format;
+#[cfg(target_os = "linux")]
+pub mod linux_shortcut;
 pub mod login;
 pub mod notify;
 pub mod paths;
@@ -69,7 +71,7 @@ pub fn run() {
                 .with_handler(|app, _shortcut, event| {
                     // Open the popover on key-down (ignore the release event).
                     if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                        show_popover(app);
+                        show_popover_on_main_thread(app);
                     }
                 })
                 .build(),
@@ -222,17 +224,37 @@ fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
 /// registers `new`. An empty `new` clears the hotkey. The plugin's handler (set
 /// in `run`) shows the popover when it fires. Returns a user-facing error.
 pub fn set_open_shortcut(app: &AppHandle, old: Option<&str>, new: &str) -> Result<(), String> {
-    use tauri_plugin_global_shortcut::GlobalShortcutExt;
-    let gs = app.global_shortcut();
-    if let Some(old) = old.map(str::trim).filter(|s| !s.is_empty()) {
-        let _ = gs.unregister(old);
+    // Linux: XDG GlobalShortcuts portal (Wayland-capable, with X11 fallback). It
+    // rebinds asynchronously and replaces any prior binding itself.
+    #[cfg(target_os = "linux")]
+    {
+        let _ = old;
+        linux_shortcut::rebind(app, new);
+        Ok(())
     }
-    let new = new.trim();
-    if new.is_empty() {
-        return Ok(());
+    // Windows/macOS: the plugin's native global hotkey.
+    #[cfg(not(target_os = "linux"))]
+    {
+        use tauri_plugin_global_shortcut::GlobalShortcutExt;
+        let gs = app.global_shortcut();
+        if let Some(old) = old.map(str::trim).filter(|s| !s.is_empty()) {
+            let _ = gs.unregister(old);
+        }
+        let new = new.trim();
+        if new.is_empty() {
+            return Ok(());
+        }
+        gs.register(new)
+            .map_err(|e| format!("couldn't set shortcut \"{new}\": {e}"))
     }
-    gs.register(new)
-        .map_err(|e| format!("couldn't set shortcut \"{new}\": {e}"))
+}
+
+/// Show the popover from any thread — window ops must run on the main thread
+/// (required on GTK/Linux; correct everywhere). Used by the global-shortcut
+/// handlers, which fire off the main thread.
+pub(crate) fn show_popover_on_main_thread(app: &AppHandle) {
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || show_popover(&handle));
 }
 
 fn toggle_popover(app: &AppHandle) {
@@ -245,7 +267,7 @@ fn toggle_popover(app: &AppHandle) {
     }
 }
 
-fn show_popover(app: &AppHandle) {
+pub(crate) fn show_popover(app: &AppHandle) {
     let Some(win) = app.get_webview_window("popover") else {
         return;
     };
