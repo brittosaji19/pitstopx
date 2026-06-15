@@ -40,10 +40,16 @@ jobs:
           node-version: 20
 
       - name: Install frontend deps
-        run: npm install
+        run: npm ci
 
       - name: Frontend unit tests
         run: npm test
+
+      - name: Frontend typecheck
+        run: npm run check
+
+      - name: Frontend build
+        run: npm run build
 
       - name: Rust fmt
         working-directory: src-tauri
@@ -53,18 +59,9 @@ jobs:
         working-directory: src-tauri
         run: cargo clippy --all-targets -- -D warnings
 
+      # `cargo clippy --all-targets` + `cargo test` (lib + bin) already compile
+      # and link every Rust target on each OS, so the bin is build-verified here.
+      # Producing installers/bundles is release.yml's job, not CI's.
       - name: Rust tests
         working-directory: src-tauri
         run: cargo test
-
-      # Icons are committed under src-tauri/icons and referenced by
-      # tauri.conf.json, so no generation step is needed (make-icon.mjs requires
-      # a rasterizer that isn't installed on CI runners).
-      - name: Build app (Tauri bundle)
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          # Attach installers to a GitHub release when the workflow is a release.
-          tagName: ${{ github.event_name == 'release' && github.ref_name || '' }}
-          releaseName: ${{ github.event_name == 'release' && 'PitStopX __VERSION__' || '' }}
