@@ -3,10 +3,12 @@
   import { invoke } from "@tauri-apps/api/core";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
   import AccountRow from "./lib/AccountRow.svelte";
+  import SettingsView from "./lib/SettingsView.svelte";
   import type { UiSnapshot } from "./lib/types";
 
   const SNAPSHOT_EVENT = "pitstopx://snapshot";
 
+  let view: "accounts" | "settings" = "accounts";
   let snapshot: UiSnapshot | null = null;
   let unlisten: UnlistenFn | null = null;
   let actionMsg = "";
@@ -91,6 +93,9 @@
 </script>
 
 <main class="panel">
+  {#if view === "settings"}
+    <SettingsView on:close={() => (view = "accounts")} />
+  {:else}
   {#if !snapshot}
     <div class="empty">Loading…</div>
   {:else if snapshot.rows.length === 0}
@@ -119,6 +124,7 @@
       ＋ Save current
     </button>
     <button class="action refresh" on:click={refresh} title="Refresh now">↻</button>
+    <button class="action settings-btn" on:click={() => (view = "settings")} title="Settings">⚙</button>
     <span class="updated">
       {#if actionMsg}
         {actionMsg}
@@ -127,4 +133,5 @@
       {/if}
     </span>
   </footer>
+  {/if}
 </main>

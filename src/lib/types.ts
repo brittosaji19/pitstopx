@@ -22,6 +22,14 @@ export interface AccountRowDTO {
   needsReauth: boolean; // last fetch was unauthorized — offer re-auth
 }
 
+// App settings (mirrors actions::SettingsDto).
+export interface Settings {
+  claudeBin: string | null; // saved override path (empty → auto-detect)
+  codexBin: string | null;
+  claudeResolved: string | null; // effective resolved path, or null if not found
+  codexResolved: string | null;
+}
+
 export interface UsageBarDTO {
   label: string; // window label derived from its length: "5h", "7d", "Monthly", …
   utilization: number | null; // 0..1

@@ -49,10 +49,20 @@ pub async fn do_switch_to(app: &AppHandle, provider: Provider, email: &str) -> C
 pub async fn do_login(app: &AppHandle, provider: Provider) -> CmdResult {
     let ctrl = ctrl(app);
 
+    // User-set CLI path override (settings page), if any.
+    let override_path = ctrl
+        .state
+        .read()
+        .await
+        .cli_paths
+        .get(provider)
+        .map(str::to_string);
+
     // Verify the provider's CLI is installed *before* touching any credentials —
     // we clear the live login below, so a missing CLI must fail fast and clean
     // rather than leave the user logged out with no way to sign back in.
-    crate::login::ensure_installed(provider).map_err(|e| e.to_string())?;
+    crate::login::ensure_installed(provider, override_path.as_deref())
+        .map_err(|e| e.to_string())?;
 
     // Snapshot the current account(s) so a switch-back is always possible. This
     // only reads the machine credential, so the outgoing account is preserved
@@ -67,7 +77,7 @@ pub async fn do_login(app: &AppHandle, provider: Provider) -> CmdResult {
         .await
         .map_err(|e| e.to_string())?;
 
-    crate::login::launch(provider).map_err(|e| e.to_string())?;
+    crate::login::launch(provider, override_path.as_deref()).map_err(|e| e.to_string())?;
 
     ctrl.notifier.notify(
         app,
@@ -177,6 +187,32 @@ pub fn do_quit(app: &AppHandle) {
     app.exit(0);
 }
 
+/// Persist (and apply) a manual CLI path override for a provider. An empty path
+/// clears the override, reverting to auto-detection.
+pub async fn do_set_cli_path(app: &AppHandle, provider: Provider, path: String) -> CmdResult {
+    let trimmed = path.trim().to_string();
+    persist_pref(app, crate::prefs::CliPaths::key_for(provider), &trimmed);
+    let ctrl = ctrl(app);
+    let value = (!trimmed.is_empty()).then_some(trimmed);
+    let mut s = ctrl.state.write().await;
+    match provider {
+        Provider::Anthropic => s.cli_paths.claude = value,
+        Provider::OpenAI => s.cli_paths.codex = value,
+    }
+    Ok(())
+}
+
+/// Settings surfaced to the panel: the saved overrides plus the *effective*
+/// resolved CLI path (override or auto-detected), or `null` when not found.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsDto {
+    pub claude_bin: Option<String>,
+    pub codex_bin: Option<String>,
+    pub claude_resolved: Option<String>,
+    pub codex_resolved: Option<String>,
+}
+
 fn persist_pref(app: &AppHandle, key: &str, value: &str) {
     use tauri_plugin_store::StoreExt;
     if let Ok(store) = app.store(crate::prefs::STORE_FILE) {
@@ -242,4 +278,26 @@ pub async fn request_snapshot(app: AppHandle) -> Result<(), String> {
     let ctrl = ctrl(&app);
     app::emit_snapshot(&app, &ctrl).await;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn set_cli_path(app: AppHandle, provider: String, path: String) -> CmdResult {
+    do_set_cli_path(&app, Provider::from_id(&provider), path).await
+}
+
+#[tauri::command]
+pub async fn get_settings(app: AppHandle) -> Result<SettingsDto, String> {
+    let ctrl = ctrl(&app);
+    let paths = ctrl.state.read().await.cli_paths.clone();
+    Ok(SettingsDto {
+        claude_resolved: crate::login::resolve_program(
+            Provider::Anthropic,
+            paths.claude.as_deref(),
+        )
+        .map(|p| p.display().to_string()),
+        codex_resolved: crate::login::resolve_program(Provider::OpenAI, paths.codex.as_deref())
+            .map(|p| p.display().to_string()),
+        claude_bin: paths.claude,
+        codex_bin: paths.codex,
+    })
 }

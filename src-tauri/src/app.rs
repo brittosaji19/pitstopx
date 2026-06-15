@@ -53,6 +53,8 @@ pub struct AppState {
     /// Threshold bucket already notified per account (0/1/2).
     pub notified_bucket: HashMap<String, u8>,
     pub prefs: IndicatorPrefs,
+    /// User overrides for the provider CLI executables (empty = auto-detect).
+    pub cli_paths: crate::prefs::CliPaths,
 }
 
 impl AppState {
@@ -134,7 +136,20 @@ pub async fn load_prefs(ctrl: &Controller, app: &AppHandle) {
         .and_then(|v| v.as_str().map(str::to_string))
         .and_then(|s| IndicatorMetric::from_key(&s))
         .unwrap_or_default();
-    ctrl.state.write().await.prefs = IndicatorPrefs { style, metric };
+    // Non-empty string override per provider CLI; empty/absent → auto-detect.
+    let bin = |key: &str| {
+        store
+            .get(key)
+            .and_then(|v| v.as_str().map(str::to_string))
+            .filter(|s| !s.trim().is_empty())
+    };
+    let cli_paths = crate::prefs::CliPaths {
+        claude: bin(crate::prefs::KEY_CLAUDE_BIN),
+        codex: bin(crate::prefs::KEY_CODEX_BIN),
+    };
+    let mut state = ctrl.state.write().await;
+    state.prefs = IndicatorPrefs { style, metric };
+    state.cli_paths = cli_paths;
 }
 
 // ---------------------------------------------------------------------------

@@ -76,6 +76,8 @@ pub fn run() {
             actions::set_launch_at_login,
             actions::quit,
             actions::request_snapshot,
+            actions::set_cli_path,
+            actions::get_settings,
         ])
         .on_menu_event(handle_menu_event)
         .setup(|app| {

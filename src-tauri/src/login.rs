@@ -17,21 +17,24 @@ use anyhow::{anyhow, Result};
 
 use crate::provider::Provider;
 
-/// Open a terminal running the provider's login command.
-pub fn launch(provider: Provider) -> Result<()> {
-    let program = resolve_program(provider).ok_or_else(|| not_installed_error(provider))?;
+/// Open a terminal running the provider's login command. `override_path` is the
+/// user-set CLI path (settings page); empty/missing/invalid falls back to
+/// auto-detection.
+pub fn launch(provider: Provider, override_path: Option<&str>) -> Result<()> {
+    let program =
+        resolve_program(provider, override_path).ok_or_else(|| not_installed_error(provider))?;
     let (_, args) = provider.login_command();
     spawn_terminal(&program, args)
 }
 
-/// Whether the provider's login CLI can be located on this system.
-pub fn is_installed(provider: Provider) -> bool {
-    resolve_program(provider).is_some()
+/// Whether the provider's login CLI can be located (override path or auto-detect).
+pub fn is_installed(provider: Provider, override_path: Option<&str>) -> bool {
+    resolve_program(provider, override_path).is_some()
 }
 
 /// `Err` (with a user-facing message) if the provider's login CLI isn't found.
-pub fn ensure_installed(provider: Provider) -> Result<()> {
-    if is_installed(provider) {
+pub fn ensure_installed(provider: Provider, override_path: Option<&str>) -> Result<()> {
+    if is_installed(provider, override_path) {
         Ok(())
     } else {
         Err(not_installed_error(provider))
@@ -46,9 +49,20 @@ fn not_installed_error(provider: Provider) -> anyhow::Error {
     )
 }
 
-/// Resolve the provider's CLI executable: `PATH` first, then known install
+/// Resolve the provider's CLI executable: an explicit user override (if it
+/// points at an existing file) wins; otherwise `PATH`, then known install
 /// locations.
-fn resolve_program(provider: Provider) -> Option<PathBuf> {
+pub fn resolve_program(provider: Provider, override_path: Option<&str>) -> Option<PathBuf> {
+    if let Some(raw) = override_path {
+        let trimmed = raw.trim();
+        if !trimmed.is_empty() {
+            let pb = PathBuf::from(trimmed);
+            if pb.is_file() {
+                return Some(pb);
+            }
+            // Invalid override → fall through to auto-detection rather than fail.
+        }
+    }
     let (name, _) = provider.login_command();
     if let Some(p) = which_on_path(name) {
         return Some(p);
