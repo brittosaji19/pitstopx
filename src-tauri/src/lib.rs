@@ -281,12 +281,28 @@ fn position_near_tray(app: &AppHandle, win: &WebviewWindow) {
 
     let margin = (8.0 * scale) as i32;
 
-    // No cursor geometry (Wayland): center on the monitor.
+    // No cursor geometry (typically Wayland, where the global cursor/tray
+    // position isn't queryable). We can't know the tray icon's location, so
+    // pick a sensible anchor instead of dead-center.
     let Some(cursor) = cursor else {
-        let x = mon_x + (mon_w - ww) / 2;
-        let y = mon_y + (mon_h - wh) / 2;
-        let _ = win.set_position(Position::Physical(PhysicalPosition { x, y }));
-        return;
+        #[cfg(target_os = "linux")]
+        {
+            // The appindicator lives in the top bar — top-right on GNOME/Ubuntu.
+            // Anchor there, clearing a typical top panel. (Wayland compositors
+            // may still override a client's requested position.)
+            let top_bar = (40.0 * scale) as i32;
+            let x = (mon_x + mon_w - ww - margin).max(mon_x + margin);
+            let y = mon_y + top_bar;
+            let _ = win.set_position(Position::Physical(PhysicalPosition { x, y }));
+            return;
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let x = mon_x + (mon_w - ww) / 2;
+            let y = mon_y + (mon_h - wh) / 2;
+            let _ = win.set_position(Position::Physical(PhysicalPosition { x, y }));
+            return;
+        }
     };
 
     let (cx, cy) = (cursor.x as i32, cursor.y as i32);
