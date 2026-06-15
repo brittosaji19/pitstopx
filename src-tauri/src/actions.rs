@@ -48,6 +48,12 @@ pub async fn do_switch_to(app: &AppHandle, provider: Provider, email: &str) -> C
 /// account once the user finishes.
 pub async fn do_login(app: &AppHandle, provider: Provider) -> CmdResult {
     let ctrl = ctrl(app);
+
+    // Verify the provider's CLI is installed *before* touching any credentials —
+    // we clear the live login below, so a missing CLI must fail fast and clean
+    // rather than leave the user logged out with no way to sign back in.
+    crate::login::ensure_installed(provider).map_err(|e| e.to_string())?;
+
     // Snapshot the current account(s) so a switch-back is always possible. This
     // only reads the machine credential, so the outgoing account is preserved
     // before we clear it below.

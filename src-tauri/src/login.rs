@@ -19,15 +19,31 @@ use crate::provider::Provider;
 
 /// Open a terminal running the provider's login command.
 pub fn launch(provider: Provider) -> Result<()> {
-    let (name, args) = provider.login_command();
-    let program = resolve_program(provider).ok_or_else(|| {
-        anyhow!(
-            "{} CLI (`{name}`) not found. Install it and try again.",
-            provider.display_name()
-        )
-    })?;
-
+    let program = resolve_program(provider).ok_or_else(|| not_installed_error(provider))?;
+    let (_, args) = provider.login_command();
     spawn_terminal(&program, args)
+}
+
+/// Whether the provider's login CLI can be located on this system.
+pub fn is_installed(provider: Provider) -> bool {
+    resolve_program(provider).is_some()
+}
+
+/// `Err` (with a user-facing message) if the provider's login CLI isn't found.
+pub fn ensure_installed(provider: Provider) -> Result<()> {
+    if is_installed(provider) {
+        Ok(())
+    } else {
+        Err(not_installed_error(provider))
+    }
+}
+
+fn not_installed_error(provider: Provider) -> anyhow::Error {
+    let (name, _) = provider.login_command();
+    anyhow!(
+        "{} CLI (`{name}`) isn't installed — install it and try again.",
+        provider.display_name()
+    )
 }
 
 /// Resolve the provider's CLI executable: `PATH` first, then known install

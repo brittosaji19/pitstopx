@@ -64,8 +64,9 @@
       await invoke("login_new", { provider });
       flash(`Finish ${label} login in the terminal that opened`);
     } catch (err) {
+      // Backend returns a user-facing message (e.g. "Codex CLI isn't installed…").
       console.error("login_new failed", err);
-      flash(`Login failed: ${err}`);
+      flash(String(err));
     } finally {
       busy = false;
     }
