@@ -1,6 +1,7 @@
 name: Release builds
 
-# Produces installable bundles for Windows (x64 + arm64) and Debian/Ubuntu (deb).
+# Produces installable bundles for Windows (x64 + arm64), macOS (Apple Silicon +
+# Intel, .dmg) and Debian/Ubuntu (deb).
 # - Runs on demand and on every tag push (`v*`) / GitHub release.
 # - On a tag/release, bundles are attached to a (draft) GitHub release.
 # - Always uploads the bundles as workflow artifacts so dispatch/tag runs are
@@ -32,6 +33,14 @@ jobs:
             os: windows-latest
             target: aarch64-pc-windows-msvc
             args: "--target aarch64-pc-windows-msvc --bundles nsis,msi"
+          - name: macos-arm64
+            os: macos-latest # Apple Silicon
+            target: aarch64-apple-darwin
+            args: "--target aarch64-apple-darwin --bundles dmg"
+          - name: macos-x64
+            os: macos-13 # Intel
+            target: x86_64-apple-darwin
+            args: "--target x86_64-apple-darwin --bundles dmg"
           - name: debian-x64
             os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
@@ -84,6 +93,20 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS code signing + notarization. Used only on the macOS legs; when
+          # the secrets are unset these resolve to empty and tauri-action skips
+          # signing (producing unsigned .dmg). Add these repo secrets to enable:
+          #   APPLE_CERTIFICATE          base64 of the Developer ID .p12
+          #   APPLE_CERTIFICATE_PASSWORD password for that .p12
+          #   APPLE_SIGNING_IDENTITY     e.g. "Developer ID Application: Name (TEAMID)"
+          #   APPLE_ID / APPLE_PASSWORD  Apple ID + app-specific password (notarization)
+          #   APPLE_TEAM_ID              Apple Developer Team ID
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           args: ${{ matrix.args }}
           # Attach to a (draft) release only on tag/release runs; no-op otherwise.
@@ -100,4 +123,5 @@ jobs:
           path: |
             src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
             src-tauri/target/${{ matrix.target }}/release/bundle/msi/*.msi
+            src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
             src-tauri/target/${{ matrix.target }}/release/bundle/deb/*.deb
