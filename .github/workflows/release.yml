@@ -93,20 +93,12 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # macOS code signing + notarization. Used only on the macOS legs; when
-          # the secrets are unset these resolve to empty and tauri-action skips
-          # signing (producing unsigned .dmg). Add these repo secrets to enable:
-          #   APPLE_CERTIFICATE          base64 of the Developer ID .p12
-          #   APPLE_CERTIFICATE_PASSWORD password for that .p12
-          #   APPLE_SIGNING_IDENTITY     e.g. "Developer ID Application: Name (TEAMID)"
-          #   APPLE_ID / APPLE_PASSWORD  Apple ID + app-specific password (notarization)
-          #   APPLE_TEAM_ID              Apple Developer Team ID
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # macOS builds are produced UNSIGNED (no Apple signing env passed), so
+          # the bundler never runs codesign/notarization. Gatekeeper will warn on
+          # first launch (right-click > Open to bypass). To enable signing later,
+          # add an `env:` block with APPLE_CERTIFICATE / APPLE_CERTIFICATE_PASSWORD
+          # / APPLE_SIGNING_IDENTITY (+ APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID
+          # for notarization) from repo secrets.
         with:
           args: ${{ matrix.args }}
           # Attach to a (draft) release only on tag/release runs; no-op otherwise.
