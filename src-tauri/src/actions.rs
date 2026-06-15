@@ -60,9 +60,17 @@ pub async fn do_login(app: &AppHandle, provider: Provider) -> CmdResult {
 
     // Verify the provider's CLI is installed *before* touching any credentials —
     // we clear the live login below, so a missing CLI must fail fast and clean
-    // rather than leave the user logged out with no way to sign back in.
-    crate::login::ensure_installed(provider, override_path.as_deref())
-        .map_err(|e| e.to_string())?;
+    // rather than leave the user logged out with no way to sign back in. Surface
+    // it as a notification too, since the tray-menu entry point shows nothing.
+    if let Err(e) = crate::login::ensure_installed(provider, override_path.as_deref()) {
+        let msg = e.to_string();
+        ctrl.notifier.notify(
+            app,
+            &format!("{} CLI not found", provider.display_name()),
+            &msg,
+        );
+        return Err(msg);
+    }
 
     // Snapshot the current account(s) so a switch-back is always possible. This
     // only reads the machine credential, so the outgoing account is preserved

@@ -115,9 +115,35 @@ fn find_codex() -> Option<PathBuf> {
     newest.map(|(_, p)| p)
 }
 
-#[cfg(not(windows))]
+/// macOS: a Finder/Dock-launched `.app` inherits a minimal `PATH`, so probe the
+/// common install locations (Homebrew, npm-global, native installers) as well.
+/// Exotic prefixes (nvm, custom) are covered by the manual path override.
+#[cfg(target_os = "macos")]
+fn find_in_known_dirs(name: &str) -> Option<PathBuf> {
+    let mut search = vec![
+        PathBuf::from("/opt/homebrew/bin"), // Apple Silicon Homebrew
+        PathBuf::from("/usr/local/bin"),    // Intel Homebrew / npm default
+    ];
+    if let Ok(home) = crate::paths::home_dir() {
+        search.push(home.join(".local/bin")); // native installers
+        search.push(home.join(".npm-global/bin"));
+        search.push(home.join(".bun/bin"));
+        search.push(home.join(".claude/local")); // Claude Code native install
+    }
+    search
+        .into_iter()
+        .map(|d| d.join(name))
+        .find(|p| p.is_file())
+}
+
+#[cfg(target_os = "macos")]
 fn find_codex() -> Option<PathBuf> {
-    None // PATH-only on macOS/Linux
+    find_in_known_dirs("codex")
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn find_codex() -> Option<PathBuf> {
+    None // Linux: PATH-only
 }
 
 /// Claude Code WinGet shim: `%LOCALAPPDATA%\Microsoft\WinGet\Packages\Anthropic.ClaudeCode_*\claude.*`.
@@ -141,9 +167,14 @@ fn find_claude() -> Option<PathBuf> {
     None
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
 fn find_claude() -> Option<PathBuf> {
-    None
+    find_in_known_dirs("claude")
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn find_claude() -> Option<PathBuf> {
+    None // Linux: PATH-only
 }
 
 /// Open a new terminal window running `program args…`, kept open afterward so
