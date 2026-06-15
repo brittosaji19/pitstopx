@@ -354,6 +354,21 @@ impl MenuModel {
     }
 }
 
+/// Human-readable accelerator for the Linux menu label (no native accelerator
+/// rendering there): `CmdOrCtrl` → `Ctrl`, leaving the rest as-is.
+#[cfg(target_os = "linux")]
+fn humanize_accelerator(accel: &str) -> String {
+    accel
+        .split('+')
+        .map(|p| match p {
+            "CmdOrCtrl" | "CommandOrControl" => "Ctrl",
+            "Cmd" | "Command" => "Super",
+            other => other,
+        })
+        .collect::<Vec<_>>()
+        .join("+")
+}
+
 /// Build the native context menu reflecting current state.
 pub fn build_menu(app: &AppHandle, model: &MenuModel, launch_at_login: bool) -> Result<Menu<Wry>> {
     let prefs = model.prefs;
@@ -433,12 +448,26 @@ pub fn build_menu(app: &AppHandle, model: &MenuModel, launch_at_login: bool) -> 
         .unwrap_or_else(|| "never".into());
 
     // Primary way to open the UI on Linux (tray click only shows this menu).
-    // The configured hotkey is shown beside it as the accelerator.
-    let mut open_item = MenuItemBuilder::new("Open PitStopX").id(ids::SHOW);
-    if !model.shortcut.is_empty() {
-        open_item = open_item.accelerator(&model.shortcut);
-    }
-    let open_item = open_item.build(app)?;
+    // The configured hotkey is shown beside it. On Windows/macOS that's a native
+    // right-aligned accelerator; the Linux appindicator (DBusMenu) doesn't render
+    // accelerators, so we fold the hotkey into the label text instead.
+    #[cfg(target_os = "linux")]
+    let open_item = {
+        let label = if model.shortcut.is_empty() {
+            "Open PitStopX".to_string()
+        } else {
+            format!("Open PitStopX  ({})", humanize_accelerator(&model.shortcut))
+        };
+        MenuItemBuilder::new(label).id(ids::SHOW).build(app)?
+    };
+    #[cfg(not(target_os = "linux"))]
+    let open_item = {
+        let mut b = MenuItemBuilder::new("Open PitStopX").id(ids::SHOW);
+        if !model.shortcut.is_empty() {
+            b = b.accelerator(&model.shortcut);
+        }
+        b.build(app)?
+    };
 
     let menu = MenuBuilder::new(app)
         .item(&open_item)
