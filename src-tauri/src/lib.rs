@@ -91,6 +91,7 @@ pub fn run() {
             actions::set_cli_path,
             actions::get_settings,
             actions::set_shortcut,
+            actions::configure_shortcut,
         ])
         .on_menu_event(handle_menu_event)
         .setup(|app| {

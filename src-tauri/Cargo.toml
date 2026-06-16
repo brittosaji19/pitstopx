@@ -61,7 +61,7 @@ rand = "0.8"
 # global-hotkey crate the plugin uses is X11-only). zbus 5 matches keyring's, so
 # they dedup. We fall back to the plugin's X11 grab when the portal is absent.
 [target.'cfg(target_os = "linux")'.dependencies]
-ashpd = { version = "0.13", default-features = false, features = ["tokio"] }
+ashpd = { version = "0.13", default-features = false, features = ["tokio", "global_shortcuts"] }
 futures-util = "0.3"
 
 [features]

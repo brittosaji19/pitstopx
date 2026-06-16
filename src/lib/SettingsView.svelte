@@ -1,7 +1,10 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
-  import { createEventDispatcher, onMount } from "svelte";
+  import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+  import { createEventDispatcher, onDestroy, onMount } from "svelte";
   import type { Settings } from "./types";
+
+  const SHORTCUT_EVENT = "pitstopx://shortcut";
 
   const dispatch = createEventDispatcher<{ close: void }>();
 
@@ -15,6 +18,10 @@
   let shortcut = "";
   let shortcutErr = "";
   let savingShortcut = false;
+  // Linux portal: the compositor owns the key, so we show it read-only and hand
+  // off rebinding to GNOME instead of editing the accelerator here.
+  let shortcutManaged = false;
+  let shortcutTrigger: string | null = null;
 
   async function load() {
     try {
@@ -24,12 +31,59 @@
       claudeResolved = s.claudeResolved;
       codexResolved = s.codexResolved;
       shortcut = s.shortcut ?? "";
+      shortcutManaged = s.shortcutManaged;
+      shortcutTrigger = s.shortcutTrigger;
     } catch (err) {
       console.error("get_settings failed", err);
     }
   }
 
   onMount(load);
+
+  // The backend emits this when a portal-managed binding changes (initial bind
+  // or after the user reconfigures it in GNOME), so refresh the displayed key.
+  let unlistenShortcut: UnlistenFn | null = null;
+  onMount(async () => {
+    unlistenShortcut = await listen(SHORTCUT_EVENT, load);
+  });
+  onDestroy(() => unlistenShortcut?.());
+
+  // GNOME reports the managed trigger as a GTK accelerator label like
+  // "Press <Shift><Control>u"; render it as "Shift + Ctrl + U".
+  function prettyTrigger(desc: string | null): string {
+    if (!desc) return "Not set";
+    const body = desc.replace(/^Press\s+/i, "");
+    const modMap: Record<string, string> = {
+      Shift: "Shift",
+      Control: "Ctrl",
+      Primary: "Ctrl",
+      Ctrl: "Ctrl",
+      Alt: "Alt",
+      Super: "Super",
+      Meta: "Meta",
+      Hyper: "Hyper",
+    };
+    const mods = [...body.matchAll(/<([^>]+)>/g)].map((m) => modMap[m[1]] ?? m[1]);
+    const key = body.slice(body.lastIndexOf(">") + 1).trim();
+    const parts = [...mods];
+    if (key) parts.push(key.length === 1 ? key.toUpperCase() : key);
+    return parts.length ? parts.join(" + ") : body;
+  }
+
+  // Ask the compositor to open its reconfiguration UI (Linux portal). The new
+  // key arrives via SHORTCUT_EVENT, so no manual reload is needed.
+  async function changeManagedShortcut() {
+    if (savingShortcut) return;
+    savingShortcut = true;
+    shortcutErr = "";
+    try {
+      await invoke("configure_shortcut");
+    } catch (err) {
+      shortcutErr = `${err}. Change it in GNOME Settings → Keyboard.`;
+    } finally {
+      savingShortcut = false;
+    }
+  }
 
   // Readable form for display; CmdOrCtrl renders as ⌘ on macOS / Ctrl elsewhere.
   function prettyShortcut(accel: string): string {
@@ -117,25 +171,45 @@
   <div class="settings-body">
     <div class="setting-group">
       <div class="setting-label">Open PitStopX shortcut</div>
-      <div class="setting-row">
-        <input
-          class="setting-input"
-          readonly
-          value={prettyShortcut(shortcut)}
-          placeholder="Click, then press a key combo"
-          on:keydown={onShortcutKeydown}
-        />
-        <button class="action" on:click={() => saveShortcut(shortcut)} disabled={savingShortcut}>
-          {savingShortcut ? "Saving…" : "Save"}
-        </button>
-        <button class="action" on:click={() => saveShortcut("")} disabled={savingShortcut} title="No shortcut">
-          Clear
-        </button>
-      </div>
-      <div class="setting-hint" class:err={!!shortcutErr}>
-        {shortcutErr ||
-          "Global hotkey to open the panel — click the field and press a combo (e.g. Ctrl/⌘ + Shift + U)."}
-      </div>
+      {#if shortcutManaged}
+        <!-- Linux portal: the compositor owns the key. Show what it assigned and
+             hand off rebinding to GNOME. -->
+        <div class="setting-row">
+          <input
+            class="setting-input"
+            readonly
+            value={prettyTrigger(shortcutTrigger)}
+            title={shortcutTrigger ?? "Managed by your desktop"}
+          />
+          <button class="action" on:click={changeManagedShortcut} disabled={savingShortcut}>
+            {savingShortcut ? "Opening…" : "Change…"}
+          </button>
+        </div>
+        <div class="setting-hint" class:err={!!shortcutErr}>
+          {shortcutErr ||
+            "Your desktop manages this global hotkey. Use “Change…” to reassign it (or set it in GNOME Settings → Keyboard)."}
+        </div>
+      {:else}
+        <div class="setting-row">
+          <input
+            class="setting-input"
+            readonly
+            value={prettyShortcut(shortcut)}
+            placeholder="Click, then press a key combo"
+            on:keydown={onShortcutKeydown}
+          />
+          <button class="action" on:click={() => saveShortcut(shortcut)} disabled={savingShortcut}>
+            {savingShortcut ? "Saving…" : "Save"}
+          </button>
+          <button class="action" on:click={() => saveShortcut("")} disabled={savingShortcut} title="No shortcut">
+            Clear
+          </button>
+        </div>
+        <div class="setting-hint" class:err={!!shortcutErr}>
+          {shortcutErr ||
+            "Global hotkey to open the panel — click the field and press a combo (e.g. Ctrl/⌘ + Shift + U)."}
+        </div>
+      {/if}
     </div>
 
     <p class="settings-note">

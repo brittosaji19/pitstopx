@@ -1,0 +1,14 @@
+[Desktop Entry]
+# Hidden alias whose basename matches our app id (dev.britto.pitstopx). The XDG
+# GlobalShortcuts portal resolves a host app's id against an installed
+# "<id>.desktop"; Tauri's generated launcher is named after the product
+# (PitStopX.desktop), so this provides the id-matching file the portal needs.
+# NoDisplay keeps it out of the app menu, leaving PitStopX.desktop the launcher.
+Type=Application
+Name=PitStopX
+Comment=Surface Claude Code usage limits and switch accounts from the system tray.
+Exec=pitstopx
+Icon=pitstopx
+Terminal=false
+Categories=Utility;
+NoDisplay=true

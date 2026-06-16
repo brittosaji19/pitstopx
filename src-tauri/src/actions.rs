@@ -221,6 +221,12 @@ pub struct SettingsDto {
     pub codex_resolved: Option<String>,
     /// Global open-popover hotkey accelerator (empty = none).
     pub shortcut: String,
+    /// True when the binding is system-managed (Linux portal): the compositor
+    /// owns the key, so the panel shows it read-only with a "Change…" button
+    /// instead of an editable field.
+    pub shortcut_managed: bool,
+    /// Compositor-assigned, human-readable trigger (e.g. "Ctrl+P") when managed.
+    pub shortcut_trigger: Option<String>,
 }
 
 /// Set (and persist) the global open-popover hotkey. An empty string clears it.
@@ -330,7 +336,44 @@ pub async fn get_settings(app: AppHandle) -> Result<SettingsDto, String> {
         claude_bin: paths.claude,
         codex_bin: paths.codex,
         shortcut,
+        shortcut_managed: shortcut_managed(),
+        shortcut_trigger: shortcut_trigger(),
     })
+}
+
+/// Whether the open-popover hotkey is system-managed (Linux GlobalShortcuts
+/// portal). Always false off Linux, where the app owns the key directly.
+#[cfg(target_os = "linux")]
+fn shortcut_managed() -> bool {
+    crate::linux_shortcut::is_managed()
+}
+#[cfg(not(target_os = "linux"))]
+fn shortcut_managed() -> bool {
+    false
+}
+
+#[cfg(target_os = "linux")]
+fn shortcut_trigger() -> Option<String> {
+    crate::linux_shortcut::current_trigger_description()
+}
+#[cfg(not(target_os = "linux"))]
+fn shortcut_trigger() -> Option<String> {
+    None
+}
+
+/// Open the compositor's reconfiguration UI for the open-popover hotkey
+/// (Linux portal only). Not supported on other platforms, where the editable
+/// field sets the key directly.
+#[tauri::command]
+pub fn configure_shortcut(_app: AppHandle) -> CmdResult {
+    #[cfg(target_os = "linux")]
+    {
+        crate::linux_shortcut::configure()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Err("changing the shortcut here isn't supported on this platform".into())
+    }
 }
 
 #[tauri::command]

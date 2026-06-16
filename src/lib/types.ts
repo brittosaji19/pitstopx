@@ -29,6 +29,8 @@ export interface Settings {
   claudeResolved: string | null; // effective resolved path, or null if not found
   codexResolved: string | null;
   shortcut: string; // global open-popover hotkey accelerator (empty = none)
+  shortcutManaged: boolean; // Linux portal: compositor owns the key (read-only UX)
+  shortcutTrigger: string | null; // compositor-assigned trigger, when managed
 }
 
 export interface UsageBarDTO {
