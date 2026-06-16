@@ -30,7 +30,7 @@ use std::sync::Arc;
 
 use tauri::menu::MenuEvent;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
 use tauri_plugin_autostart::MacosLauncher;
 
 use app::{Controller, SharedController};
@@ -69,9 +69,10 @@ pub fn run() {
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
-                    // Open the popover on key-down (ignore the release event).
+                    // Toggle the popover on key-down (ignore the release event):
+                    // press to open, press again to close.
                     if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                        show_popover_on_main_thread(app);
+                        toggle_popover_on_main_thread(app);
                     }
                 })
                 .build(),
@@ -253,19 +254,28 @@ pub fn set_open_shortcut(app: &AppHandle, old: Option<&str>, new: &str) -> Resul
 /// Show the popover from any thread — window ops must run on the main thread
 /// (required on GTK/Linux; correct everywhere). Used by the global-shortcut
 /// handlers, which fire off the main thread.
-pub(crate) fn show_popover_on_main_thread(app: &AppHandle) {
+pub(crate) fn toggle_popover_on_main_thread(app: &AppHandle) {
     let handle = app.clone();
-    let _ = app.run_on_main_thread(move || show_popover(&handle));
+    let _ = app.run_on_main_thread(move || toggle_popover(&handle));
 }
 
 fn toggle_popover(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("popover") {
         if win.is_visible().unwrap_or(false) {
-            let _ = win.hide();
+            hide_popover(app);
         } else {
             show_popover(app);
         }
     }
+}
+
+/// Hide the popover and reset the panel to its main (accounts) view, so the next
+/// open never lands on a stale settings page.
+fn hide_popover(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window("popover") {
+        let _ = win.hide();
+    }
+    let _ = app.emit(ui_events::RESET_VIEW_EVENT, ());
 }
 
 pub(crate) fn show_popover(app: &AppHandle) {
@@ -385,7 +395,7 @@ fn attach_blur_autohide(win: &WebviewWindow) {
     let handle = win.clone();
     win.on_window_event(move |event| {
         if let tauri::WindowEvent::Focused(false) = event {
-            let _ = handle.hide();
+            hide_popover(handle.app_handle());
         }
     });
 }

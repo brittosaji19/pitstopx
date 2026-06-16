@@ -7,10 +7,12 @@
   import type { UiSnapshot } from "./lib/types";
 
   const SNAPSHOT_EVENT = "pitstopx://snapshot";
+  const RESET_VIEW_EVENT = "pitstopx://reset-view";
 
   let view: "accounts" | "settings" = "accounts";
   let snapshot: UiSnapshot | null = null;
   let unlisten: UnlistenFn | null = null;
+  let unlistenReset: UnlistenFn | null = null;
   let actionMsg = "";
   let busy = false;
   let msgTimer: ReturnType<typeof setTimeout> | undefined;
@@ -26,6 +28,11 @@
     unlisten = await listen<UiSnapshot>(SNAPSHOT_EVENT, (e) => {
       snapshot = e.payload;
     });
+    // Reset to the main view whenever the popover hides, so re-opening never
+    // lands on a stale settings page.
+    unlistenReset = await listen(RESET_VIEW_EVENT, () => {
+      view = "accounts";
+    });
     // Pull the current snapshot for an instant first paint.
     try {
       await invoke("request_snapshot");
@@ -36,6 +43,7 @@
 
   onDestroy(() => {
     unlisten?.();
+    unlistenReset?.();
     clearTimeout(msgTimer);
   });
 

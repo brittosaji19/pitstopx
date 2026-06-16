@@ -12,6 +12,10 @@ use crate::usage_api::{BindingWindow, UsageError, UsageReport};
 /// Event name the panel subscribes to.
 pub const SNAPSHOT_EVENT: &str = "pitstopx://snapshot";
 
+/// Emitted when the popover hides, so the panel resets to its main (accounts)
+/// view — the next open never lands on a stale settings page.
+pub const RESET_VIEW_EVENT: &str = "pitstopx://reset-view";
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UiSnapshot {

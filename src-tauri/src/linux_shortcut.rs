@@ -168,8 +168,8 @@ async fn portal_loop(
         tokio::select! {
             Some(act) = activated.next() => {
                 if act.shortcut_id() == SHORTCUT_ID {
-                    tracing::debug!("global shortcut activated; showing popover");
-                    crate::show_popover_on_main_thread(app);
+                    tracing::debug!("global shortcut activated; toggling popover");
+                    crate::toggle_popover_on_main_thread(app);
                 }
             }
             Some(ch) = changed.next() => {
