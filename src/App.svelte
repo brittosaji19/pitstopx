@@ -85,6 +85,16 @@
     view = view === "settings" ? "accounts" : "settings";
   }
 
+  // Close = hide the popover (it's a tray app; Quit lives in the tray menu).
+  async function close() {
+    view = "accounts";
+    try {
+      await getCurrentWindow().hide();
+    } catch (err) {
+      /* window may already be hidden */
+    }
+  }
+
   async function refresh() {
     spinning = true;
     setTimeout(() => (spinning = false), 600);
@@ -140,6 +150,7 @@
       <button class="icon-btn" on:click={toggleSettings} title={view === "settings" ? "Back" : "Settings"}>
         {view === "settings" ? "←" : "⚙"}
       </button>
+      <button class="icon-btn close" on:click={close} title="Close">✕</button>
     </div>
   </header>
 
