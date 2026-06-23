@@ -7,7 +7,7 @@ use anyhow::Result;
 use tauri::image::Image;
 use tauri::menu::{CheckMenuItemBuilder, Menu, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::{AppHandle, Wry};
-use tiny_skia::{Color, Paint, PathBuilder, Pixmap, Rect, Stroke, Transform};
+use tiny_skia::{Color, LineCap, LineJoin, Paint, PathBuilder, Pixmap, Rect, Stroke, Transform};
 
 use crate::app::AppState;
 use crate::prefs::{IndicatorPrefs, IndicatorStyle};
@@ -215,7 +215,7 @@ fn draw_gauge(pixmap: &mut Pixmap, pct: Option<f64>, alpha: f32) {
     track.anti_alias = true;
     if let Some(circle) = PathBuilder::from_circle(cx, cy, r) {
         let stroke = Stroke {
-            width: 3.0,
+            width: 6.0,
             ..Default::default()
         };
         pixmap.stroke_path(&circle, &track, &stroke, Transform::identity(), None);
@@ -243,7 +243,9 @@ fn draw_gauge(pixmap: &mut Pixmap, pct: Option<f64>, alpha: f32) {
         }
         if let Some(path) = pb.finish() {
             let stroke = Stroke {
-                width: 3.5,
+                width: 6.5,
+                line_cap: LineCap::Round,
+                line_join: LineJoin::Round,
                 ..Default::default()
             };
             pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
