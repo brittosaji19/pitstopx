@@ -105,6 +105,22 @@ impl ClaudeSource {
     }
 }
 
+/// Plan label source from `oauthAccount.organizationType`:
+/// `"claude_max"` → `"max"`, `"claude_pro"` → `"pro"`, etc.
+fn plan_from_org_type(t: &str) -> String {
+    t.strip_prefix("claude_").unwrap_or(t).to_string()
+}
+
+/// Reduce a rate-limit-tier id to the form `Profile::plan_label` understands:
+/// `"default_claude_max_5x"` → `"max_5x"` (so it renders the `5x`/`20x` suffix);
+/// anything without a `max_…` segment is left as-is (no suffix shown).
+fn normalize_tier(t: &str) -> String {
+    match t.find("max_") {
+        Some(i) => t[i..].to_string(),
+        None => t.to_string(),
+    }
+}
+
 #[async_trait]
 impl AccountSource for ClaudeSource {
     fn provider(&self) -> Provider {
@@ -127,15 +143,31 @@ impl AccountSource for ClaudeSource {
             return Ok(None);
         };
 
-        // subscription / tier live inside the blob's claudeAiOauth section.
+        // Prefer the plan info in `oauthAccount`: `organizationType` distinguishes
+        // Max from Pro (the credential blob's `subscriptionType` reports "pro" for
+        // both), and `organizationRateLimitTier` carries the 5x/20x tier. Fall
+        // back to the blob's fields for older `~/.claude.json` shapes.
         let creds = CredentialBlob::parse(&blob)
             .ok()
             .and_then(|b| b.credentials().ok());
 
+        let subscription_type = oauth_account
+            .get("organizationType")
+            .and_then(Value::as_str)
+            .map(plan_from_org_type)
+            .or_else(|| creds.as_ref().and_then(|c| c.subscription_type.clone()));
+        let rate_limit_tier = oauth_account
+            .get("organizationRateLimitTier")
+            .or_else(|| oauth_account.get("userRateLimitTier"))
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .map(normalize_tier)
+            .or_else(|| creds.as_ref().and_then(|c| c.rate_limit_tier.clone()));
+
         let identity = Identity {
             email,
-            subscription_type: creds.as_ref().and_then(|c| c.subscription_type.clone()),
-            rate_limit_tier: creds.as_ref().and_then(|c| c.rate_limit_tier.clone()),
+            subscription_type,
+            rate_limit_tier,
             oauth_account,
         };
         Ok(Some(LiveAccount { blob, identity }))
@@ -216,4 +248,23 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     std::fs::rename(&tmp, path)
         .with_context(|| format!("renaming {} -> {}", tmp.display(), path.display()))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod plan_tests {
+    use super::{normalize_tier, plan_from_org_type};
+
+    #[test]
+    fn plan_from_org_type_strips_prefix() {
+        assert_eq!(plan_from_org_type("claude_max"), "max");
+        assert_eq!(plan_from_org_type("claude_pro"), "pro");
+        assert_eq!(plan_from_org_type("team"), "team");
+    }
+
+    #[test]
+    fn normalize_tier_extracts_max_segment() {
+        assert_eq!(normalize_tier("default_claude_max_5x"), "max_5x");
+        assert_eq!(normalize_tier("default_claude_max_20x"), "max_20x");
+        assert_eq!(normalize_tier("default_claude_ai"), "default_claude_ai");
+    }
 }

@@ -190,7 +190,11 @@ impl ProfileStore {
                 .find(|p| p.provider == provider && p.email == email);
             let unchanged = saved.as_deref() == Some(live.blob.as_slice())
                 && existing
-                    .map(|p| p.oauth_account == live.identity.oauth_account)
+                    .map(|p| {
+                        p.oauth_account == live.identity.oauth_account
+                            && p.subscription_type == live.identity.subscription_type
+                            && p.rate_limit_tier == live.identity.rate_limit_tier
+                    })
                     .unwrap_or(false);
             if unchanged {
                 captured.push((provider, email));
