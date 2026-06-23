@@ -64,6 +64,10 @@ rand = "0.8"
 ashpd = { version = "0.13", default-features = false, features = ["tokio", "global_shortcuts"] }
 futures-util = "0.3"
 
+[dev-dependencies]
+# Used only by the ignored tray-preview test to dump rendered icons as PNGs.
+image = "0.25"
+
 [features]
 default = []
 # Build the screenshot/demo mode with masked sample data.

@@ -22,7 +22,11 @@ const CORAL: (u8, u8, u8) = (0xD9, 0x77, 0x57);
 
 /// Inputs that determine what the tray icon should look like right now.
 pub struct TrayVisual {
+    /// Headline figure for the square icon (per the metric pref).
     pub utilization: Option<f64>,
+    /// Per-window figures for the wide (macOS) two-bar layout.
+    pub five_hour: Option<f64>,
+    pub seven_day: Option<f64>,
     pub stale: bool,
     pub prefs: IndicatorPrefs,
 }
@@ -30,9 +34,11 @@ pub struct TrayVisual {
 impl TrayVisual {
     /// Derive the visual from current state for the active account.
     pub fn from_state(state: &AppState) -> Self {
-        let util = state.indicator_utilization();
+        let report = state.primary_key().and_then(|k| state.usage.get(&k));
         TrayVisual {
-            utilization: util,
+            utilization: state.indicator_utilization(),
+            five_hour: report.and_then(|r| r.five_hour.utilization),
+            seven_day: report.and_then(|r| r.seven_day.utilization),
             stale: state.active_is_stale(),
             prefs: state.prefs,
         }
@@ -50,8 +56,22 @@ fn warning_color(pct: f64) -> Option<Color> {
     }
 }
 
-/// Render the tray icon to an RGBA `Image`.
+/// Render the tray icon to an RGBA `Image`, adapting to the platform: macOS menu
+/// bar items accept a variable-width image, so they get the wide two-bar layout;
+/// Windows and Linux trays are square, so they get the gauge/percent icon.
+///
+/// `cfg!` (not `#[cfg]`) keeps both renderers compiled and referenced on every
+/// platform — the dead branch is dropped by the optimizer, not flagged unused.
 pub fn render_icon(v: &TrayVisual) -> Result<Image<'static>> {
+    if cfg!(target_os = "macos") {
+        render_rectangular(v)
+    } else {
+        render_square(v)
+    }
+}
+
+/// Square gauge/percent icon for Windows & Linux trays (and the macOS dock).
+fn render_square(v: &TrayVisual) -> Result<Image<'static>> {
     let mut pixmap = Pixmap::new(ICON, ICON).expect("nonzero pixmap");
     let alpha = if v.stale { 0.45 } else { 1.0 };
 
@@ -79,6 +99,109 @@ pub fn render_icon(v: &TrayVisual) -> Result<Image<'static>> {
     }
 
     Ok(Image::new_owned(pixmap.take(), ICON, ICON))
+}
+
+/// Wide indicator size (px). Rendered well above the macOS menu-bar height so
+/// the system downscales it crisply; ~2.75:1 leaves room for two bars + labels.
+const RECT_W: u32 = 176;
+const RECT_H: u32 = 64;
+
+/// Wide two-bar indicator for the macOS menu bar: the 5-hour and weekly windows
+/// as horizontal progress bars with their percentages, color-coded by warning
+/// tier. Background stays transparent so the menu bar shows through.
+fn render_rectangular(v: &TrayVisual) -> Result<Image<'static>> {
+    let mut pixmap = Pixmap::new(RECT_W, RECT_H).expect("nonzero pixmap");
+    let alpha = if v.stale { 0.45 } else { 1.0 };
+
+    let cell = 2_i32;
+    let glyph_w = GLYPH_W as i32 * cell;
+    let glyph_h = GLYPH_H as i32 * cell;
+    let gap = cell;
+
+    let row_h = RECT_H as i32 / 2;
+    let left = 6;
+    let right = 6;
+    let label_w = 2 * glyph_w + gap; // "5h" / "7d"
+    let pct_w = 4 * glyph_w + 3 * gap; // room for up to "100%"
+    let bar_x = left + label_w + 6;
+    let bar_w = (RECT_W as i32 - right - pct_w - 6 - bar_x).max(8);
+    let bar_h = 8_i32;
+
+    for (i, (label, util)) in [("5h", v.five_hour), ("7d", v.seven_day)]
+        .into_iter()
+        .enumerate()
+    {
+        let row_y0 = i as i32 * row_h;
+        let text_y = row_y0 + (row_h - glyph_h) / 2;
+        let pct = util.map(|u| (u * 100.0).round());
+
+        // Bar/percent color follows the warning tier; coral otherwise.
+        let (cr, cg, cb) = match pct.and_then(warning_color) {
+            Some(c) => (
+                (c.red() * 255.0) as u8,
+                (c.green() * 255.0) as u8,
+                (c.blue() * 255.0) as u8,
+            ),
+            None => CORAL,
+        };
+
+        // Window label in muted gray.
+        let mut lx = left;
+        for ch in label.chars() {
+            draw_glyph(
+                &mut pixmap,
+                glyph_for(ch),
+                lx,
+                text_y,
+                cell,
+                (0xB0, 0xB0, 0xB0),
+                alpha,
+            );
+            lx += glyph_w + gap;
+        }
+
+        // Bar track, then proportional fill.
+        let by = row_y0 + (row_h - bar_h) / 2;
+        if let Some(rect) = Rect::from_xywh(bar_x as f32, by as f32, bar_w as f32, bar_h as f32) {
+            let mut track = Paint::default();
+            track.set_color(Color::from_rgba8(0x88, 0x88, 0x88, (90.0 * alpha) as u8));
+            track.anti_alias = true;
+            pixmap.fill_rect(rect, &track, Transform::identity(), None);
+        }
+        if let Some(p) = pct {
+            let frac = (p / 100.0).clamp(0.0, 1.0) as f32;
+            let fw = (bar_w as f32 * frac).max(2.0);
+            if let Some(rect) = Rect::from_xywh(bar_x as f32, by as f32, fw, bar_h as f32) {
+                let mut fill = Paint::default();
+                fill.set_color(Color::from_rgba8(cr, cg, cb, (255.0 * alpha) as u8));
+                fill.anti_alias = true;
+                pixmap.fill_rect(rect, &fill, Transform::identity(), None);
+            }
+        }
+
+        // Percentage, right-aligned, in the tier color.
+        let text = match pct {
+            Some(p) => format!("{}%", p as i64),
+            None => "–".to_string(),
+        };
+        let chars: Vec<char> = text.chars().collect();
+        let text_w = chars.len() as i32 * glyph_w + (chars.len() as i32 - 1).max(0) * gap;
+        let mut px = RECT_W as i32 - right - text_w;
+        for ch in chars {
+            draw_glyph(
+                &mut pixmap,
+                glyph_for(ch),
+                px,
+                text_y,
+                cell,
+                (cr, cg, cb),
+                alpha,
+            );
+            px += glyph_w + gap;
+        }
+    }
+
+    Ok(Image::new_owned(pixmap.take(), RECT_W, RECT_H))
 }
 
 fn draw_gauge(pixmap: &mut Pixmap, pct: Option<f64>, alpha: f32) {
@@ -190,6 +313,7 @@ fn draw_glyph(
     alpha: f32,
 ) {
     let a = (255.0 * alpha) as u8;
+    let (w, h) = (pixmap.width() as i32, pixmap.height() as i32);
     for (row, bits) in glyph.iter().enumerate() {
         for col in 0..GLYPH_W {
             // Bit 4 (0x10) is the leftmost column.
@@ -198,7 +322,7 @@ fn draw_glyph(
                     for dx in 0..cell {
                         let px = ox + col as i32 * cell + dx;
                         let py = oy + row as i32 * cell + dy;
-                        if px >= 0 && py >= 0 && px < ICON as i32 && py < ICON as i32 {
+                        if px >= 0 && py >= 0 && px < w && py < h {
                             blend_pixel(pixmap, px as u32, py as u32, r, g, b, a);
                         }
                     }
@@ -227,6 +351,9 @@ fn glyph_for(c: char) -> [u8; GLYPH_H] {
         '9' => [0x0E, 0x11, 0x11, 0x0F, 0x01, 0x02, 0x0C],
         '%' => [0x18, 0x19, 0x02, 0x04, 0x08, 0x13, 0x03],
         '–' | '-' => [0x00, 0x00, 0x00, 0x1F, 0x00, 0x00, 0x00],
+        // Lowercase letters for the wide indicator's window labels (5h / 7d).
+        'h' => [0x10, 0x10, 0x10, 0x1C, 0x12, 0x12, 0x12],
+        'd' => [0x02, 0x02, 0x02, 0x0E, 0x12, 0x12, 0x0E],
         _ => [0x00; GLYPH_H],
     }
 }
@@ -253,7 +380,7 @@ fn draw_badge(pixmap: &mut Pixmap, color: Color, alpha: f32) {
 /// Alpha-blend a single pixel onto the pixmap (premultiplied-safe enough for
 /// the small glyph coverage we draw).
 fn blend_pixel(pixmap: &mut Pixmap, x: u32, y: u32, r: u8, g: u8, b: u8, a: u8) {
-    let idx = (y * ICON + x) as usize * 4;
+    let idx = (y * pixmap.width() + x) as usize * 4;
     let data = pixmap.data_mut();
     let af = a as f32 / 255.0;
     let inv = 1.0 - af;
@@ -508,4 +635,44 @@ pub fn build_menu(app: &AppHandle, model: &MenuModel, launch_at_login: bool) -> 
         .build()?;
 
     Ok(menu)
+}
+
+#[cfg(test)]
+mod preview {
+    //! Visual smoke test: dumps both tray renderers to PNGs for eyeballing.
+    //! `#[ignore]`d so it's opt-in: `cargo test tray_preview -- --ignored`.
+    use super::*;
+
+    fn save(img: &Image, path: &str) {
+        image::RgbaImage::from_raw(img.width(), img.height(), img.rgba().to_vec())
+            .expect("dims match buffer")
+            .save(path)
+            .expect("write png");
+    }
+
+    #[test]
+    #[ignore]
+    fn tray_preview() {
+        let mid = TrayVisual {
+            utilization: Some(0.68),
+            five_hour: Some(0.68),
+            seven_day: Some(0.41),
+            stale: false,
+            prefs: IndicatorPrefs::default(),
+        };
+        save(&render_square(&mid).unwrap(), "/tmp/tray_square.png");
+        save(&render_rectangular(&mid).unwrap(), "/tmp/tray_rect.png");
+
+        let warn = TrayVisual {
+            utilization: Some(0.93),
+            five_hour: Some(0.93),
+            seven_day: Some(0.78),
+            stale: false,
+            prefs: IndicatorPrefs::default(),
+        };
+        save(
+            &render_rectangular(&warn).unwrap(),
+            "/tmp/tray_rect_warn.png",
+        );
+    }
 }

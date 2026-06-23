@@ -107,6 +107,8 @@ pub fn run() {
             // Build the tray programmatically so we own its events.
             let base_icon = tray::render_icon(&tray::TrayVisual {
                 utilization: None,
+                five_hour: None,
+                seven_day: None,
                 stale: false,
                 prefs: Default::default(),
             })
