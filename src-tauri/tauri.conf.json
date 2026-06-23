@@ -17,10 +17,11 @@
         "label": "popover",
         "title": "PitStopX",
         "url": "index.html",
-        "width": 360,
-        "height": 520,
-        "minWidth": 360,
-        "minHeight": 240,
+        "width": 372,
+        "height": 600,
+        "minWidth": 372,
+        "minHeight": 120,
+        "maxWidth": 372,
         "resizable": false,
         "decorations": false,
         "transparent": true,
@@ -29,7 +30,7 @@
         "visible": false,
         "focus": false,
         "center": false,
-        "shadow": true
+        "shadow": false
       }
     ],
     "security": {

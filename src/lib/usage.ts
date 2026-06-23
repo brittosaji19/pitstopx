@@ -3,13 +3,13 @@
 
 import type { UsageBarDTO } from "./types";
 
-/** Bar fill class: green < 70%, orange 70–90%, red ≥ 90%, grey when unknown. */
+/** Meter color modifier: green < 70%, orange 70–90%, red ≥ 90%, grey unknown. */
 export function barClass(util: number | null): string {
-  if (util === null) return "bar-fill unknown";
+  if (util === null) return "unknown";
   const pct = util * 100;
-  if (pct >= 90) return "bar-fill red";
-  if (pct >= 70) return "bar-fill orange";
-  return "bar-fill green";
+  if (pct >= 90) return "red";
+  if (pct >= 70) return "orange";
+  return "green";
 }
 
 /** Right-aligned percentage text, `–` when unknown. */

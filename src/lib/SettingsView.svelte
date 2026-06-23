@@ -1,12 +1,10 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-  import { createEventDispatcher, onDestroy, onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import type { Settings } from "./types";
 
   const SHORTCUT_EVENT = "pitstopx://shortcut";
-
-  const dispatch = createEventDispatcher<{ close: void }>();
 
   let claudeBin = "";
   let codexBin = "";
@@ -162,13 +160,7 @@
   }
 </script>
 
-<div class="settings">
-  <header class="settings-head">
-    <button class="icon-btn" title="Back" on:click={() => dispatch("close")}>←</button>
-    <span class="settings-title">Settings</span>
-  </header>
-
-  <div class="settings-body">
+<div class="settings-body">
     <div class="setting-group">
       <div class="setting-label">Open PitStopX shortcut</div>
       {#if shortcutManaged}
@@ -181,7 +173,7 @@
             value={prettyTrigger(shortcutTrigger)}
             title={shortcutTrigger ?? "Managed by your desktop"}
           />
-          <button class="action" on:click={changeManagedShortcut} disabled={savingShortcut}>
+          <button class="pill" on:click={changeManagedShortcut} disabled={savingShortcut}>
             {savingShortcut ? "Opening…" : "Change…"}
           </button>
         </div>
@@ -198,10 +190,10 @@
             placeholder="Click, then press a key combo"
             on:keydown={onShortcutKeydown}
           />
-          <button class="action" on:click={() => saveShortcut(shortcut)} disabled={savingShortcut}>
+          <button class="pill" on:click={() => saveShortcut(shortcut)} disabled={savingShortcut}>
             {savingShortcut ? "Saving…" : "Save"}
           </button>
-          <button class="action" on:click={() => saveShortcut("")} disabled={savingShortcut} title="No shortcut">
+          <button class="pill" on:click={() => saveShortcut("")} disabled={savingShortcut} title="No shortcut">
             Clear
           </button>
         </div>
@@ -228,7 +220,7 @@
           autocapitalize="off"
           autocomplete="off"
         />
-        <button class="action" on:click={() => save("anthropic", claudeBin)} disabled={saving === "anthropic"}>
+        <button class="pill" on:click={() => save("anthropic", claudeBin)} disabled={saving === "anthropic"}>
           {saving === "anthropic" ? "Saving…" : "Save"}
         </button>
       </div>
@@ -248,7 +240,7 @@
           autocapitalize="off"
           autocomplete="off"
         />
-        <button class="action" on:click={() => save("openai", codexBin)} disabled={saving === "openai"}>
+        <button class="pill" on:click={() => save("openai", codexBin)} disabled={saving === "openai"}>
           {saving === "openai" ? "Saving…" : "Save"}
         </button>
       </div>
@@ -256,5 +248,4 @@
         {codexResolved ? `Using: ${codexResolved}` : "Not found — set the full path to the codex executable"}
       </div>
     </div>
-  </div>
 </div>
