@@ -57,9 +57,25 @@ pub struct AppState {
     pub cli_paths: crate::prefs::CliPaths,
     /// Global hotkey accelerator to open the popover (empty = none).
     pub shortcut: String,
+    /// Account pinned to drive the tray icon (its `Profile::key()`), or `None`
+    /// to auto-pick the highest-utilization active account.
+    pub tray_account: Option<String>,
 }
 
 impl AppState {
+    /// Recompute the tray's primary account from the current pin / active set —
+    /// used after the user changes the tray-account selection so the icon
+    /// updates immediately (the refresh loop also keeps it current).
+    pub fn recompute_primary(&mut self) {
+        let active: Vec<(Provider, String)> = self
+            .profiles
+            .iter()
+            .filter(|p| self.active_keys.contains(&p.key()))
+            .map(|p| (p.provider, p.email.clone()))
+            .collect();
+        self.active_primary = pick_primary(self, &active);
+    }
+
     /// Secret-store/cache key of the primary active account.
     pub fn primary_key(&self) -> Option<String> {
         self.active_primary.as_ref().map(|(p, e)| secret_key(*p, e))
@@ -155,10 +171,12 @@ pub async fn load_prefs(ctrl: &Controller, app: &AppHandle) {
         Some(v) => v.as_str().unwrap_or("").to_string(),
         None => crate::prefs::DEFAULT_SHORTCUT.to_string(),
     };
+    let tray_account = bin(crate::prefs::KEY_TRAY_ACCOUNT); // empty/absent → auto
     let mut state = ctrl.state.write().await;
     state.prefs = IndicatorPrefs { style, metric };
     state.cli_paths = cli_paths;
     state.shortcut = shortcut;
+    state.tray_account = tray_account;
 }
 
 // ---------------------------------------------------------------------------
@@ -277,10 +295,15 @@ async fn run_refresh_once(ctrl: &Controller, app: &AppHandle) {
     check_thresholds(ctrl, app).await;
 }
 
-/// Choose the active account that should drive the tray indicator: the one with
-/// the highest known utilization, ties broken by provider order (Anthropic
-/// first). Falls back to the first active account when no usage is known yet.
+/// Choose the account that should drive the tray indicator. A user-pinned
+/// account (if it's still a saved profile) wins; otherwise the active account
+/// with the highest known utilization, ties broken by provider order.
 fn pick_primary(s: &AppState, active: &[(Provider, String)]) -> Option<(Provider, String)> {
+    if let Some(key) = &s.tray_account {
+        if let Some(p) = s.profiles.iter().find(|p| &p.key() == key) {
+            return Some((p.provider, p.email.clone()));
+        }
+    }
     active
         .iter()
         .max_by(|a, b| {

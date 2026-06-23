@@ -181,6 +181,21 @@ pub async fn do_set_indicator_metric(app: &AppHandle, metric: IndicatorMetric) -
     Ok(())
 }
 
+/// Pin (or `None` = auto) the account whose usage drives the tray icon. Persists,
+/// recomputes the primary immediately, and re-renders the icon + menu.
+pub async fn do_set_tray_account(app: &AppHandle, key: Option<&str>) -> CmdResult {
+    persist_pref(app, crate::prefs::KEY_TRAY_ACCOUNT, key.unwrap_or(""));
+    let ctrl = ctrl(app);
+    {
+        let mut s = ctrl.state.write().await;
+        s.tray_account = key.map(str::to_string).filter(|k| !k.is_empty());
+        s.recompute_primary();
+    }
+    app::update_tray(app, &ctrl).await;
+    app::rebuild_menu(app, &ctrl).await;
+    Ok(())
+}
+
 pub fn do_set_launch_at_login(app: &AppHandle, enabled: bool) -> CmdResult {
     let mgr = app.autolaunch();
     let res = if enabled { mgr.enable() } else { mgr.disable() };

@@ -12,6 +12,8 @@ pub const KEY_METRIC: &str = "indicatorMetric";
 pub const KEY_CLAUDE_BIN: &str = "claudeBinPath";
 pub const KEY_CODEX_BIN: &str = "codexBinPath";
 pub const KEY_SHORTCUT: &str = "openShortcut";
+/// Account pinned to the tray icon (its `Profile::key()`); empty = auto.
+pub const KEY_TRAY_ACCOUNT: &str = "trayAccount";
 
 /// Global hotkey to open the popover, used until the user changes it. `CmdOrCtrl`
 /// maps to ⌘ on macOS and Ctrl elsewhere.

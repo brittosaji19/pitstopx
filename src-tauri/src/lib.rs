@@ -210,6 +210,9 @@ fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
                 Some(m) => actions::do_set_indicator_metric(&app, m).await,
                 None => Ok(()),
             }
+        } else if let Some(rest) = id.strip_prefix(ids::TRAY_ACCOUNT_PREFIX) {
+            // "auto" → highest-utilization active account; otherwise pin the key.
+            actions::do_set_tray_account(&app, (rest != "auto").then_some(rest)).await
         } else {
             Ok(())
         };

@@ -448,6 +448,8 @@ pub mod ids {
     pub const LOGIN_PREFIX: &str = "login::";
     pub const STYLE_PREFIX: &str = "style::";
     pub const METRIC_PREFIX: &str = "metric::";
+    /// `tray_account::<key>` (or `tray_account::auto`) — which account the icon shows.
+    pub const TRAY_ACCOUNT_PREFIX: &str = "tray_account::";
 }
 
 /// A `Send` snapshot of the state the native menu needs. Extracted under the
@@ -460,6 +462,8 @@ pub struct MenuModel {
     pub last_refresh: Option<chrono::DateTime<chrono::Utc>>,
     /// Global open-popover hotkey, shown as the "Open PitStopX" accelerator.
     pub shortcut: String,
+    /// Account key pinned to the tray icon, or `None` for auto.
+    pub tray_account: Option<String>,
 }
 
 impl MenuModel {
@@ -479,6 +483,7 @@ impl MenuModel {
             prefs: state.prefs,
             last_refresh: state.last_refresh,
             shortcut: state.shortcut.clone(),
+            tray_account: state.tray_account.clone(),
         }
     }
 }
@@ -560,6 +565,28 @@ pub fn build_menu(app: &AppHandle, model: &MenuModel, launch_at_login: bool) -> 
     }
     let display_sub = display_sub.build()?;
 
+    // Tray Account ▸ — which account the icon reflects (auto, or a pinned one).
+    let mut tray_sub = SubmenuBuilder::new(app, "Tray Account");
+    tray_sub = tray_sub.item(
+        &CheckMenuItemBuilder::new("Highest usage (auto)")
+            .id(format!("{}auto", ids::TRAY_ACCOUNT_PREFIX))
+            .checked(model.tray_account.is_none())
+            .build(app)?,
+    );
+    if !model.accounts.is_empty() {
+        tray_sub = tray_sub.separator();
+        for (provider, email, _active) in &model.accounts {
+            let key = crate::source::secret_key(*provider, email);
+            tray_sub = tray_sub.item(
+                &CheckMenuItemBuilder::new(format!("{email} ({})", provider.display_name()))
+                    .id(format!("{}{key}", ids::TRAY_ACCOUNT_PREFIX))
+                    .checked(model.tray_account.as_deref() == Some(key.as_str()))
+                    .build(app)?,
+            );
+        }
+    }
+    let tray_sub = tray_sub.build()?;
+
     // Log in to new account ▸ (one item per provider).
     let mut login_sub = SubmenuBuilder::new(app, "Log in to New Account");
     for provider in Provider::ALL {
@@ -615,6 +642,7 @@ pub fn build_menu(app: &AppHandle, model: &MenuModel, launch_at_login: bool) -> 
                 .build(app)?,
         )
         .item(&display_sub)
+        .item(&tray_sub)
         .separator()
         .item(
             &CheckMenuItemBuilder::new("Launch at Login")
