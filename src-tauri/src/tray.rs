@@ -644,10 +644,12 @@ mod preview {
     use super::*;
 
     fn save(img: &Image, path: &str) {
-        image::RgbaImage::from_raw(img.width(), img.height(), img.rgba().to_vec())
-            .expect("dims match buffer")
-            .save(path)
-            .expect("write png");
+        // Encode via tiny-skia (already a dep) to avoid pulling the `image` crate
+        // — its default features drag in the heavy AVIF encoder tree. The render
+        // output is premultiplied RGBA, which is exactly what Pixmap expects.
+        let size = tiny_skia::IntSize::from_wh(img.width(), img.height()).expect("nonzero size");
+        let pm = Pixmap::from_vec(img.rgba().to_vec(), size).expect("dims match buffer");
+        std::fs::write(path, pm.encode_png().expect("encode png")).expect("write png");
     }
 
     #[test]
