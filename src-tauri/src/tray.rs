@@ -101,10 +101,11 @@ fn render_square(v: &TrayVisual) -> Result<Image<'static>> {
     Ok(Image::new_owned(pixmap.take(), ICON, ICON))
 }
 
-/// Wide indicator size (px). Rendered well above the macOS menu-bar height so
-/// the system downscales it crisply; ~2.75:1 leaves room for two bars + labels.
-const RECT_W: u32 = 176;
-const RECT_H: u32 = 64;
+/// Wide indicator size (px). The system scales this to the menu-bar height, so a
+/// shorter canvas (relative to the glyph/bar sizes below) keeps the two rows of
+/// text and bars large enough to read once downscaled.
+const RECT_W: u32 = 220;
+const RECT_H: u32 = 50;
 
 /// Wide two-bar indicator for the macOS menu bar: the 5-hour and weekly windows
 /// as horizontal progress bars with their percentages, color-coded by warning
@@ -113,7 +114,7 @@ fn render_rectangular(v: &TrayVisual) -> Result<Image<'static>> {
     let mut pixmap = Pixmap::new(RECT_W, RECT_H).expect("nonzero pixmap");
     let alpha = if v.stale { 0.45 } else { 1.0 };
 
-    let cell = 2_i32;
+    let cell = 3_i32;
     let glyph_w = GLYPH_W as i32 * cell;
     let glyph_h = GLYPH_H as i32 * cell;
     let gap = cell;
@@ -125,7 +126,7 @@ fn render_rectangular(v: &TrayVisual) -> Result<Image<'static>> {
     let pct_w = 4 * glyph_w + 3 * gap; // room for up to "100%"
     let bar_x = left + label_w + 6;
     let bar_w = (RECT_W as i32 - right - pct_w - 6 - bar_x).max(8);
-    let bar_h = 8_i32;
+    let bar_h = 13_i32;
 
     for (i, (label, util)) in [("5h", v.five_hour), ("7d", v.seven_day)]
         .into_iter()
