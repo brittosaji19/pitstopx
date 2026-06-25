@@ -27,6 +27,107 @@ WebView)** to also run on Windows and Linux. See
 3. **Be warned** by a native notification before a limit stalls your work,
    including which saved account is the "best pit" to switch to.
 
+## Install
+
+Grab the build for your platform from the
+[**Releases**](https://github.com/brittosaji19/pitstopx/releases) page, then
+follow the steps below. CI produces these bundles for every tagged release (see
+[`.github/workflows/release.yml`](.github/workflows/release.yml)). To build from
+source instead, jump to [Build & run](#build--run).
+
+> [!NOTE]
+> Builds are currently **unsigned**, so each OS shows a one-time
+> "unverified developer" warning on first launch — the steps below say how to
+> get past it. All Linux packages are **x86_64**.
+
+### macOS
+
+Download the `.dmg` for your chip — **Apple Silicon** (`aarch64`) or **Intel**
+(`x64`) — open it, and drag **PitStopX** into *Applications*. Requires macOS 12
+(Monterey) or newer.
+
+Because the build is unsigned, Gatekeeper blocks the first launch. Either
+right-click the app → **Open** → **Open**, or clear the quarantine flag:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/PitStopX.app
+```
+
+### Windows
+
+Download an installer for your architecture (**x64** or **arm64**):
+
+- **`*-setup.exe`** — NSIS installer (recommended), or
+- **`*.msi`** — MSI (for managed / silent deploys).
+
+If SmartScreen appears, click **More info → Run anyway**. The WebView2 runtime
+is fetched automatically when missing. Silent install:
+
+```powershell
+.\PitStopX_*-setup.exe /S                       # NSIS
+msiexec /i PitStopX_*_en-US.msi /quiet          # MSI
+```
+
+### Linux
+
+Pick the package matching your distribution and run the command from the folder
+you downloaded it into (the filename includes the version). Every package needs
+a system-tray / `StatusNotifierItem` host — on GNOME install the
+[AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/);
+most other desktops work out of the box.
+
+**Debian / Ubuntu** (and derivatives: Mint, Pop!\_OS, Kali, Zorin, elementary)
+
+```bash
+sudo apt install ./*.deb        # resolves libwebkit2gtk-4.1-0 + libayatana-appindicator3-1
+# older dpkg without local-file support:
+sudo dpkg -i ./*.deb || sudo apt -f install
+```
+
+**Fedora / RHEL / CentOS Stream / Rocky / AlmaLinux**
+
+```bash
+sudo dnf install ./*.rpm
+```
+
+**openSUSE**
+
+```bash
+sudo zypper install ./*.rpm
+```
+
+**Arch Linux** (and Manjaro / EndeavourOS / Garuda) — install the pacman package
+attached to the release:
+
+```bash
+sudo pacman -U ./*.pkg.tar.zst
+```
+
+Prefer to build it yourself? A `PKGBUILD` lives in
+[`pkg/arch/`](pkg/arch/PKGBUILD):
+
+```bash
+npm ci                              # from the repo root
+npm run tauri build -- --no-bundle  # produces the release binary
+cd pkg/arch && makepkg -f --nodeps
+sudo pacman -U ./pitstopx-*.pkg.tar.zst
+```
+
+**Any other distribution — AppImage.** The `.AppImage` carries its own WebView
+and runs on most glibc-based distros with no install:
+
+```bash
+chmod +x ./*.AppImage
+./PitStopX_*.AppImage
+```
+
+It needs FUSE to self-mount. If you hit a FUSE error, either install it
+(`sudo apt install libfuse2` / `sudo dnf install fuse-libs`) or run it extracted:
+
+```bash
+./PitStopX_*.AppImage --appimage-extract-and-run
+```
+
 ## Architecture at a glance
 
 - **Rust core is the single source of truth** — owns the 120s refresh loop,
@@ -95,7 +196,9 @@ npm run tauri build
 ```
 
 Artifacts per OS: `.dmg`/`.app` (macOS), `.msi`/NSIS `.exe` (Windows),
-`.AppImage`/`.deb`/`.rpm` (Linux).
+`.AppImage`/`.deb`/`.rpm` (Linux). For the Arch `.pkg.tar.zst`, build the binary
+with `npm run tauri build -- --no-bundle` then run `makepkg` in
+[`pkg/arch/`](pkg/arch/PKGBUILD) (Tauri's bundler has no pacman target).
 
 ## CLI / diagnostic modes
 

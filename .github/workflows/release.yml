@@ -1,7 +1,10 @@
 name: Release builds
 
-# Produces installable bundles for Windows (x64 + arm64), macOS (Apple Silicon +
-# Intel, .dmg) and Debian/Ubuntu (deb).
+# Produces installable bundles for every supported platform:
+#   - Windows (x64 + arm64): NSIS .exe + .msi
+#   - macOS   (Apple Silicon + Intel): .dmg
+#   - Linux   (x64): .deb (Debian/Ubuntu), .rpm (Fedora/RHEL/openSUSE),
+#             .AppImage (distro-agnostic), and a pacman .pkg.tar.zst (Arch).
 # - Runs only manually: a published GitHub release, or a manual dispatch.
 #   (Does NOT auto-trigger on `v*` tag pushes.)
 # - On a release, bundles are attached to that (draft) release.
@@ -40,10 +43,13 @@ jobs:
             os: macos-14 # Intel
             target: x86_64-apple-darwin
             args: "--target x86_64-apple-darwin --bundles dmg"
-          - name: debian-x64
+          # One Linux job emits .deb, .rpm and .AppImage. The Arch .pkg.tar.zst
+          # is built by the separate `arch` job below — Tauri's bundler has no
+          # pacman target.
+          - name: linux-x64
             os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
-            args: "--target x86_64-unknown-linux-gnu --bundles deb"
+            args: "--target x86_64-unknown-linux-gnu --bundles deb,rpm,appimage"
 
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
@@ -116,3 +122,70 @@ jobs:
             src-tauri/target/${{ matrix.target }}/release/bundle/msi/*.msi
             src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
             src-tauri/target/${{ matrix.target }}/release/bundle/deb/*.deb
+            src-tauri/target/${{ matrix.target }}/release/bundle/rpm/*.rpm
+            src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage
+
+  # Arch Linux pacman package. Tauri's bundler has no pacman target, so we build
+  # the release binary inside an Arch container (linking against Arch's own
+  # webkit2gtk so the package is native) and wrap it with makepkg into a
+  # .pkg.tar.zst. Runs independently of the matrix `build` job; on a release it
+  # attaches to the same (draft) release keyed by tag.
+  arch:
+    name: arch-linux
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    permissions:
+      contents: write
+
+    steps:
+      # base-devel provides makepkg/fakeroot/sudo; the rest mirror the Tauri
+      # Linux build deps. rust/nodejs/npm come from the Arch repos.
+      - name: Install build dependencies
+        run: |
+          pacman -Syu --noconfirm --needed \
+            base-devel git rust nodejs npm \
+            webkit2gtk-4.1 libayatana-appindicator librsvg gtk3 openssl
+
+      - uses: actions/checkout@v4
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: arch-linux
+
+      - name: Install frontend deps
+        run: npm ci
+
+      # --no-bundle: we only need the release binary; makepkg does the packaging.
+      - name: Build release binary
+        run: npm run tauri build -- --no-bundle
+
+      - name: Build pacman package
+        run: |
+          set -eux
+          # Keep PKGBUILD's pkgver in lockstep with the app version.
+          version="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          sed -i "s/^pkgver=.*/pkgver=${version}/" pkg/arch/PKGBUILD
+
+          # makepkg refuses to run as root, so build as an unprivileged user.
+          # -H gives it a writable HOME; the binary/icons it packages are
+          # world-readable, so only pkg/arch needs to be writable.
+          useradd -m builder
+          chown -R builder:builder pkg/arch
+          cd pkg/arch
+          sudo -H -u builder makepkg -f --noconfirm --nodeps
+
+      - name: Upload bundle as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pitstopx-arch-linux
+          if-no-files-found: error
+          path: pkg/arch/*.pkg.tar.zst
+
+      - name: Attach to release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          draft: true
+          files: pkg/arch/*.pkg.tar.zst

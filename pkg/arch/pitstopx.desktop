@@ -1,0 +1,12 @@
+[Desktop Entry]
+# Visible launcher for the Arch (pacman) package. Installed as
+# dev.britto.pitstopx.desktop so the basename matches the app id the XDG
+# GlobalShortcuts portal resolves global hotkeys against.
+Type=Application
+Name=PitStopX
+Comment=Surface Claude Code usage limits and switch accounts from the system tray.
+Exec=pitstopx
+Icon=pitstopx
+Terminal=false
+Categories=Utility;
+StartupNotify=false

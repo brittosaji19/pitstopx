@@ -1,0 +1,46 @@
+# Maintainer: britto <brittosaji19@gmail.com>
+#
+# Packages the prebuilt PitStopX release binary into a pacman package.
+#
+# The release pipeline (.github/workflows/release.yml, `arch` job) runs
+# `tauri build --no-bundle` first, then invokes makepkg here, so package()
+# simply installs artifacts that already exist in the repo tree (no build()).
+# CI rewrites `pkgver` from tauri.conf.json before building; keep the default
+# below in sync for manual local builds:
+#
+#   # after `npm run tauri build -- --no-bundle` from the repo root:
+#   cd pkg/arch && makepkg -f --nodeps && sudo pacman -U ./pitstopx-*.pkg.tar.zst
+pkgname=pitstopx
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="System-tray app surfacing Claude Code usage limits with one-click account switching"
+arch=('x86_64')
+url="https://github.com/brittosaji19/pitstopx"
+license=('MIT')
+depends=('webkit2gtk-4.1' 'gtk3' 'libayatana-appindicator' 'librsvg')
+# The binary is already stripped by the release profile (Cargo.toml); skipping
+# strip also stops makepkg from trying to split out a (nonexistent) debug pkg.
+options=('!strip' '!debug')
+
+package() {
+  local root="${startdir}/../.."
+
+  # Main binary.
+  install -Dm755 "${root}/src-tauri/target/release/${pkgname}" \
+    "${pkgdir}/usr/bin/${pkgname}"
+
+  # Launcher. The filename matches the app id (dev.britto.pitstopx) so the XDG
+  # GlobalShortcuts portal can resolve our hotkeys. Unlike the bundled alias the
+  # deb/rpm packages ship (which is NoDisplay because Tauri also emits a visible
+  # PitStopX.desktop), this entry IS the visible launcher for the Arch package.
+  install -Dm644 "${startdir}/pitstopx.desktop" \
+    "${pkgdir}/usr/share/applications/dev.britto.pitstopx.desktop"
+
+  # Icons (Icon=pitstopx in the .desktop resolves against the hicolor theme).
+  install -Dm644 "${root}/src-tauri/icons/32x32.png" \
+    "${pkgdir}/usr/share/icons/hicolor/32x32/apps/${pkgname}.png"
+  install -Dm644 "${root}/src-tauri/icons/128x128.png" \
+    "${pkgdir}/usr/share/icons/hicolor/128x128/apps/${pkgname}.png"
+  install -Dm644 "${root}/src-tauri/icons/128x128@2x.png" \
+    "${pkgdir}/usr/share/icons/hicolor/256x256/apps/${pkgname}.png"
+}
