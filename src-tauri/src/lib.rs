@@ -111,6 +111,7 @@ pub fn run() {
                 seven_day: None,
                 stale: false,
                 prefs: Default::default(),
+                dark_appearance: false,
             })
             .expect("base tray icon renders");
 
