@@ -29,6 +29,11 @@ pub struct TrayVisual {
     pub seven_day: Option<f64>,
     pub stale: bool,
     pub prefs: IndicatorPrefs,
+    /// Whether the host menu bar / tray is currently in dark appearance. Drives
+    /// the neutral label and track colors so the indicator stays legible on a
+    /// light *or* dark macOS menu bar. Defaults to `false`; the caller fills it
+    /// in from the live system appearance just before rendering.
+    pub dark_appearance: bool,
 }
 
 impl TrayVisual {
@@ -41,6 +46,7 @@ impl TrayVisual {
             seven_day: report.and_then(|r| r.seven_day.utilization),
             stale: state.active_is_stale(),
             prefs: state.prefs,
+            dark_appearance: false,
         }
     }
 }
@@ -114,6 +120,20 @@ fn render_rectangular(v: &TrayVisual) -> Result<Image<'static>> {
     let mut pixmap = Pixmap::new(RECT_W, RECT_H).expect("nonzero pixmap");
     let alpha = if v.stale { 0.45 } else { 1.0 };
 
+    // Neutral ink adapts to the host menu-bar appearance: light glyphs/track on a
+    // dark menu bar, dark on a light one. Without this the fixed mid-gray washed
+    // out against whichever bar it sat on.
+    let label_rgb = if v.dark_appearance {
+        (0xCD, 0xCD, 0xD2)
+    } else {
+        (0x46, 0x46, 0x4C)
+    };
+    let (track_rgb, track_alpha) = if v.dark_appearance {
+        ((0xFF, 0xFF, 0xFF), 66.0_f32)
+    } else {
+        ((0x1A, 0x1A, 0x22), 58.0_f32)
+    };
+
     let cell = 3_i32;
     let glyph_w = GLYPH_W as i32 * cell;
     let glyph_h = GLYPH_H as i32 * cell;
@@ -155,7 +175,7 @@ fn render_rectangular(v: &TrayVisual) -> Result<Image<'static>> {
                 lx,
                 text_y,
                 cell,
-                (0xB0, 0xB0, 0xB0),
+                label_rgb,
                 alpha,
             );
             lx += glyph_w + gap;
@@ -165,7 +185,12 @@ fn render_rectangular(v: &TrayVisual) -> Result<Image<'static>> {
         let by = row_y0 + (row_h - bar_h) / 2;
         if let Some(rect) = Rect::from_xywh(bar_x as f32, by as f32, bar_w as f32, bar_h as f32) {
             let mut track = Paint::default();
-            track.set_color(Color::from_rgba8(0x88, 0x88, 0x88, (90.0 * alpha) as u8));
+            track.set_color(Color::from_rgba8(
+                track_rgb.0,
+                track_rgb.1,
+                track_rgb.2,
+                (track_alpha * alpha) as u8,
+            ));
             track.anti_alias = true;
             pixmap.fill_rect(rect, &track, Transform::identity(), None);
         }
@@ -692,6 +717,7 @@ mod preview {
             seven_day: Some(0.41),
             stale: false,
             prefs: IndicatorPrefs::default(),
+            dark_appearance: false,
         };
         save(&render_square(&mid).unwrap(), "/tmp/tray_square.png");
         save(&render_rectangular(&mid).unwrap(), "/tmp/tray_rect.png");
@@ -702,6 +728,7 @@ mod preview {
             seven_day: Some(0.78),
             stale: false,
             prefs: IndicatorPrefs::default(),
+            dark_appearance: true,
         };
         save(
             &render_rectangular(&warn).unwrap(),

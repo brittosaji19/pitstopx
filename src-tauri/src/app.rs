@@ -440,6 +440,19 @@ pub async fn update_tray(app: &AppHandle, ctrl: &Controller) {
         let Some(tray) = app2.tray_by_id("main") else {
             return;
         };
+        // Match the icon's neutral colors to the current system appearance so the
+        // macOS menu-bar indicator stays legible on a light or dark menu bar. The
+        // popover window tracks the system theme; query it here on the main thread.
+        #[allow(unused_mut)]
+        let mut visual = visual;
+        #[cfg(target_os = "macos")]
+        {
+            visual.dark_appearance = app2
+                .get_webview_window("popover")
+                .and_then(|w| w.theme().ok())
+                .map(|t| matches!(t, tauri::Theme::Dark))
+                .unwrap_or(false);
+        }
         match crate::tray::render_icon(&visual) {
             Ok(icon) => {
                 let _ = tray.set_icon(Some(icon));
