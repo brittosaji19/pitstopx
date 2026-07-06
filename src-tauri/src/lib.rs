@@ -102,6 +102,25 @@ pub fn run() {
             if let Some(win) = app.get_webview_window("popover") {
                 let _ = win.hide();
                 attach_blur_autohide(&win);
+
+                // macOS: frosted-glass material behind the transparent webview.
+                // The CSS keys translucent surfaces off `data-platform="macos"`,
+                // so the panel reads like a native menu. Radius matches the
+                // panel's CSS border-radius (12px).
+                #[cfg(target_os = "macos")]
+                {
+                    use window_vibrancy::{
+                        apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState,
+                    };
+                    if let Err(e) = apply_vibrancy(
+                        &win,
+                        NSVisualEffectMaterial::Popover,
+                        Some(NSVisualEffectState::Active),
+                        Some(12.0),
+                    ) {
+                        tracing::warn!(error = %e, "vibrancy unavailable; panel stays translucent without blur");
+                    }
+                }
             }
 
             // Build the tray programmatically so we own its events.

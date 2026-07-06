@@ -64,6 +64,11 @@ rand = "0.8"
 ashpd = { version = "0.13", default-features = false, features = ["tokio", "global_shortcuts"] }
 futures-util = "0.3"
 
+# Native frosted-glass popover: NSVisualEffectView vibrancy behind the (already
+# transparent) webview window, so the panel reads like a system menu.
+[target.'cfg(target_os = "macos")'.dependencies]
+window-vibrancy = "0.6"
+
 [features]
 default = []
 # Build the screenshot/demo mode with masked sample data.

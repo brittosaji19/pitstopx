@@ -17,8 +17,40 @@ use crate::provider::Provider;
 /// downscales for crisp text; the percentage font scales to fit this width.
 const ICON: u32 = 64;
 
-/// Brand coral.
-const CORAL: (u8, u8, u8) = (0xD9, 0x77, 0x57);
+// ---------------------------------------------------------------------------
+// Palette — electric indigo brand + status tiers, stepped per menu-bar
+// appearance so every color clears ~3:1 on the surface it actually sits on
+// (validated against light `#E8E8EA` / dark `#26262A` menu-bar approximations).
+// ---------------------------------------------------------------------------
+
+/// Brand accent (electric indigo) for the healthy fill, per appearance.
+fn accent_rgb(dark_appearance: bool) -> (u8, u8, u8) {
+    if dark_appearance {
+        (0x9B, 0xA3, 0xFF)
+    } else {
+        (0x4A, 0x51, 0xE0)
+    }
+}
+
+/// Warning-tier fill color (bars), per appearance: red ≥ 90%, amber ≥ 75%,
+/// `None` (accent) below.
+fn tier_fill_rgb(pct: f64, dark_appearance: bool) -> Option<(u8, u8, u8)> {
+    if pct >= 90.0 {
+        Some(if dark_appearance {
+            (0xFF, 0x6B, 0x61)
+        } else {
+            (0xD6, 0x30, 0x31)
+        })
+    } else if pct >= 75.0 {
+        Some(if dark_appearance {
+            (0xFF, 0xB6, 0x40)
+        } else {
+            (0xB4, 0x53, 0x09) // darker amber: text-grade contrast on a light bar
+        })
+    } else {
+        None
+    }
+}
 
 /// Inputs that determine what the tray icon should look like right now.
 pub struct TrayVisual {
@@ -51,12 +83,13 @@ impl TrayVisual {
     }
 }
 
-/// Warning tier driving the badge color.
+/// Warning tier driving the square icon's badge dot. The taskbar behind it is
+/// unknown, so these are fixed saturated mid-tones that read on either ink.
 fn warning_color(pct: f64) -> Option<Color> {
     if pct >= 90.0 {
-        Some(Color::from_rgba8(0xE5, 0x3E, 0x3E, 255)) // red
+        Some(Color::from_rgba8(0xEF, 0x44, 0x44, 255)) // red
     } else if pct >= 75.0 {
-        Some(Color::from_rgba8(0xF5, 0xA1, 0x23, 255)) // orange
+        Some(Color::from_rgba8(0xF5, 0x9E, 0x0B, 255)) // amber
     } else {
         None
     }
@@ -114,8 +147,9 @@ const RECT_W: u32 = 220;
 const RECT_H: u32 = 50;
 
 /// Wide two-bar indicator for the macOS menu bar: the 5-hour and weekly windows
-/// as horizontal progress bars with their percentages, color-coded by warning
-/// tier. Background stays transparent so the menu bar shows through.
+/// as pill-shaped progress bars with their percentages, color-coded by warning
+/// tier (indigo → amber → red). Background stays transparent so the menu bar
+/// shows through; every ink is stepped per appearance for contrast.
 fn render_rectangular(v: &TrayVisual) -> Result<Image<'static>> {
     let mut pixmap = Pixmap::new(RECT_W, RECT_H).expect("nonzero pixmap");
     let alpha = if v.stale { 0.45 } else { 1.0 };
@@ -124,14 +158,14 @@ fn render_rectangular(v: &TrayVisual) -> Result<Image<'static>> {
     // dark menu bar, dark on a light one. Without this the fixed mid-gray washed
     // out against whichever bar it sat on.
     let label_rgb = if v.dark_appearance {
-        (0xCD, 0xCD, 0xD2)
+        (0xE8, 0xEA, 0xF2)
     } else {
-        (0x46, 0x46, 0x4C)
+        (0x33, 0x36, 0x3F)
     };
     let (track_rgb, track_alpha) = if v.dark_appearance {
-        ((0xFF, 0xFF, 0xFF), 66.0_f32)
+        ((0xFF, 0xFF, 0xFF), 70.0_f32)
     } else {
-        ((0x1A, 0x1A, 0x22), 58.0_f32)
+        ((0x14, 0x16, 0x20), 52.0_f32)
     };
 
     let cell = 3_i32;
@@ -146,7 +180,7 @@ fn render_rectangular(v: &TrayVisual) -> Result<Image<'static>> {
     let pct_w = 4 * glyph_w + 3 * gap; // room for up to "100%"
     let bar_x = left + label_w + 6;
     let bar_w = (RECT_W as i32 - right - pct_w - 6 - bar_x).max(8);
-    let bar_h = 13_i32;
+    let bar_h = 14_i32;
 
     for (i, (label, util)) in [("5h", v.five_hour), ("7d", v.seven_day)]
         .into_iter()
@@ -156,17 +190,12 @@ fn render_rectangular(v: &TrayVisual) -> Result<Image<'static>> {
         let text_y = row_y0 + (row_h - glyph_h) / 2;
         let pct = util.map(|u| (u * 100.0).round());
 
-        // Bar/percent color follows the warning tier; coral otherwise.
-        let (cr, cg, cb) = match pct.and_then(warning_color) {
-            Some(c) => (
-                (c.red() * 255.0) as u8,
-                (c.green() * 255.0) as u8,
-                (c.blue() * 255.0) as u8,
-            ),
-            None => CORAL,
-        };
+        // Bar/percent color follows the warning tier; brand indigo otherwise.
+        let (cr, cg, cb) = pct
+            .and_then(|p| tier_fill_rgb(p, v.dark_appearance))
+            .unwrap_or_else(|| accent_rgb(v.dark_appearance));
 
-        // Window label in muted gray.
+        // Window label in the neutral ink.
         let mut lx = left;
         for ch in label.chars() {
             draw_glyph(
@@ -181,28 +210,34 @@ fn render_rectangular(v: &TrayVisual) -> Result<Image<'static>> {
             lx += glyph_w + gap;
         }
 
-        // Bar track, then proportional fill.
+        // Pill track, then proportional pill fill.
         let by = row_y0 + (row_h - bar_h) / 2;
-        if let Some(rect) = Rect::from_xywh(bar_x as f32, by as f32, bar_w as f32, bar_h as f32) {
-            let mut track = Paint::default();
-            track.set_color(Color::from_rgba8(
+        fill_pill(
+            &mut pixmap,
+            bar_x as f32,
+            by as f32,
+            bar_w as f32,
+            bar_h as f32,
+            Color::from_rgba8(
                 track_rgb.0,
                 track_rgb.1,
                 track_rgb.2,
                 (track_alpha * alpha) as u8,
-            ));
-            track.anti_alias = true;
-            pixmap.fill_rect(rect, &track, Transform::identity(), None);
-        }
+            ),
+        );
         if let Some(p) = pct {
             let frac = (p / 100.0).clamp(0.0, 1.0) as f32;
-            let fw = (bar_w as f32 * frac).max(2.0);
-            if let Some(rect) = Rect::from_xywh(bar_x as f32, by as f32, fw, bar_h as f32) {
-                let mut fill = Paint::default();
-                fill.set_color(Color::from_rgba8(cr, cg, cb, (255.0 * alpha) as u8));
-                fill.anti_alias = true;
-                pixmap.fill_rect(rect, &fill, Transform::identity(), None);
-            }
+            // A pill needs at least its own height; below that it reads as a
+            // "just started" dot at the track's left edge.
+            let fw = (bar_w as f32 * frac).max(bar_h as f32);
+            fill_pill(
+                &mut pixmap,
+                bar_x as f32,
+                by as f32,
+                fw,
+                bar_h as f32,
+                Color::from_rgba8(cr, cg, cb, (255.0 * alpha) as u8),
+            );
         }
 
         // Percentage, right-aligned, in the tier color.
@@ -230,6 +265,33 @@ fn render_rectangular(v: &TrayVisual) -> Result<Image<'static>> {
     Ok(Image::new_owned(pixmap.take(), RECT_W, RECT_H))
 }
 
+/// Fill a pill (fully-rounded-ended bar) at `x,y` sized `w×h`. Widths below `h`
+/// clamp to a circle so a tiny fill still renders as a clean dot.
+fn fill_pill(pixmap: &mut Pixmap, x: f32, y: f32, w: f32, h: f32, color: Color) {
+    let r = h / 2.0;
+    let w = w.max(h);
+    let mut pb = PathBuilder::new();
+    pb.push_circle(x + r, y + r, r);
+    pb.push_circle(x + w - r, y + r, r);
+    if w > h {
+        if let Some(rect) = Rect::from_xywh(x + r, y, w - h, h) {
+            pb.push_rect(rect);
+        }
+    }
+    if let Some(path) = pb.finish() {
+        let mut paint = Paint::default();
+        paint.set_color(color);
+        paint.anti_alias = true;
+        pixmap.fill_path(
+            &path,
+            &paint,
+            tiny_skia::FillRule::Winding,
+            Transform::identity(),
+            None,
+        );
+    }
+}
+
 fn draw_gauge(pixmap: &mut Pixmap, pct: Option<f64>, alpha: f32) {
     let cx = ICON as f32 / 2.0;
     let cy = ICON as f32 / 2.0;
@@ -247,11 +309,12 @@ fn draw_gauge(pixmap: &mut Pixmap, pct: Option<f64>, alpha: f32) {
         pixmap.stroke_path(&circle, &track, &stroke, Transform::identity(), None);
     }
 
-    // Fill arc proportional to utilization.
+    // Fill arc proportional to utilization. Mid-step indigo: the taskbar behind
+    // is unknown, so pick the step that clears ~3:1 on both white and black.
     if let Some(p) = pct {
         let frac = (p / 100.0).clamp(0.0, 1.0) as f32;
         let mut paint = Paint::default();
-        let (cr, cg, cb) = CORAL;
+        let (cr, cg, cb) = (0x6A, 0x72, 0xF2);
         paint.set_color(Color::from_rgba8(cr, cg, cb, (255.0 * alpha) as u8));
         paint.anti_alias = true;
         let mut pb = PathBuilder::new();
@@ -311,15 +374,16 @@ fn draw_percent_pill(pixmap: &mut Pixmap, label: &str, pct: Option<f64>, alpha: 
         glyph_h as f32 + pad * 2.0,
     ) {
         let mut bg = Paint::default();
-        bg.set_color(Color::from_rgba8(0x16, 0x16, 0x16, (210.0 * alpha) as u8));
+        // Ink-dark pill with a whisper of indigo so the digits read on any bar.
+        bg.set_color(Color::from_rgba8(0x14, 0x16, 0x1F, (216.0 * alpha) as u8));
         bg.anti_alias = true;
         pixmap.fill_rect(rect, &bg, Transform::identity(), None);
     }
 
-    // Text color follows the warning tier.
+    // Text color follows the warning tier (dark-surface steps: the pill is dark).
     let (tr, tg, tb) = match pct {
-        Some(p) if p >= 90.0 => (0xFF, 0x6B, 0x6B),
-        Some(p) if p >= 75.0 => (0xFF, 0xC1, 0x6B),
+        Some(p) if p >= 90.0 => (0xFF, 0x6B, 0x61),
+        Some(p) if p >= 75.0 => (0xFF, 0xB6, 0x40),
         _ => (0xFF, 0xFF, 0xFF),
     };
 
@@ -711,27 +775,32 @@ mod preview {
     #[test]
     #[ignore]
     fn tray_preview() {
-        let mid = TrayVisual {
-            utilization: Some(0.68),
-            five_hour: Some(0.68),
-            seven_day: Some(0.41),
+        let visual = |five: f64, seven: f64, dark: bool| TrayVisual {
+            utilization: Some(five),
+            five_hour: Some(five),
+            seven_day: Some(seven),
             stale: false,
             prefs: IndicatorPrefs::default(),
-            dark_appearance: false,
+            dark_appearance: dark,
         };
-        save(&render_square(&mid).unwrap(), "/tmp/tray_square.png");
-        save(&render_rectangular(&mid).unwrap(), "/tmp/tray_rect.png");
 
-        let warn = TrayVisual {
-            utilization: Some(0.93),
-            five_hour: Some(0.93),
-            seven_day: Some(0.78),
-            stale: false,
-            prefs: IndicatorPrefs::default(),
-            dark_appearance: true,
-        };
+        let mid_light = visual(0.68, 0.41, false);
+        let mid_dark = visual(0.68, 0.41, true);
+        let warn_light = visual(0.93, 0.78, false);
+        let warn_dark = visual(0.93, 0.78, true);
+
+        save(&render_square(&mid_light).unwrap(), "/tmp/tray_square.png");
+        save(&render_rectangular(&mid_light).unwrap(), "/tmp/tray_rect.png");
         save(
-            &render_rectangular(&warn).unwrap(),
+            &render_rectangular(&mid_dark).unwrap(),
+            "/tmp/tray_rect_dark.png",
+        );
+        save(
+            &render_rectangular(&warn_light).unwrap(),
+            "/tmp/tray_rect_warn_light.png",
+        );
+        save(
+            &render_rectangular(&warn_dark).unwrap(),
             "/tmp/tray_rect_warn.png",
         );
     }
