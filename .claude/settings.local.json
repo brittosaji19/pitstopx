@@ -35,7 +35,8 @@
       "PowerShell(Get-Process -Name pitstopx -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Milliseconds 400; $env:Path = \"C:\\\\Node\\\\node-v24.16.0-win-arm64;C:\\\\Program Files\\\\LLVM\\\\bin;$env:Path\"; powershell -ExecutionPolicy Bypass -File C:\\\\Users\\\\britto\\\\PitStopX\\\\scripts\\\\build-windows.ps1 -Bundles nsis)",
       "WebFetch(domain:docs.rs)",
       "Bash(node --version 2>&1 | head -2; echo \"---\"; ls ~/.nvm/versions/node/ 2>/dev/null)",
-      "Read(//Users/britto/.nvm/versions/node/**)"
+      "Read(//Users/britto/.nvm/versions/node/**)",
+      "Bash(git -C /Users/britto/pitstopx diff HEAD -- src/main.ts src-tauri/src/lib.rs src-tauri/Cargo.toml)"
     ]
   }
 }
