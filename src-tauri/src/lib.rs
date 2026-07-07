@@ -96,6 +96,12 @@ pub fn run() {
         ])
         .on_menu_event(handle_menu_event)
         .setup(|app| {
+            // macOS: run as a background agent (Accessory) — no dock icon or app
+            // menu. Besides matching what this app is, it stops the popover from
+            // yanking the user out of another app's fullscreen Space when shown.
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
             let handle = app.handle().clone();
 
             // Hide the popover at startup; it's shown on tray click.
@@ -120,6 +126,12 @@ pub fn run() {
                     ) {
                         tracing::warn!(error = %e, "vibrancy unavailable; panel stays translucent without blur");
                     }
+
+                    // Let the popover appear over another app's fullscreen Space
+                    // (and every regular Space) without switching Spaces. The
+                    // default window only joins regular spaces, so it was
+                    // invisible whenever another app was in fullscreen.
+                    configure_popover_spaces(&win);
                 }
             }
 
@@ -436,4 +448,26 @@ fn attach_popover_window_events(win: &WebviewWindow) {
             });
         }
     });
+}
+
+/// macOS: let the popover be shown on top of another app's fullscreen Space
+/// (`FullScreenAuxiliary`) and on whichever Space is active (`CanJoinAllSpaces`),
+/// staying put instead of animating between Spaces (`Stationary`). Tauri's
+/// `alwaysOnTop` only floats the window; on its own the window joins regular
+/// Spaces only, so it was invisible whenever another app was fullscreen.
+#[cfg(target_os = "macos")]
+fn configure_popover_spaces(win: &WebviewWindow) {
+    use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior};
+    let Ok(ptr) = win.ns_window() else {
+        return;
+    };
+    // SAFETY: `ns_window()` hands back this window's live `NSWindow*`; we only
+    // borrow it here on the main thread (setup) while the window is alive.
+    let ns: &NSWindow = unsafe { &*(ptr as *const NSWindow) };
+    ns.setCollectionBehavior(
+        ns.collectionBehavior()
+            | NSWindowCollectionBehavior::CanJoinAllSpaces
+            | NSWindowCollectionBehavior::FullScreenAuxiliary
+            | NSWindowCollectionBehavior::Stationary,
+    );
 }

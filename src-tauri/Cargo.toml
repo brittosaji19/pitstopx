@@ -68,6 +68,11 @@ futures-util = "0.3"
 # transparent) webview window, so the panel reads like a system menu.
 [target.'cfg(target_os = "macos")'.dependencies]
 window-vibrancy = "0.6"
+# Set the popover's NSWindow collection behavior so it can appear over another
+# app's fullscreen Space (FullScreenAuxiliary) — Tauri only exposes the weaker
+# "join all spaces" flag, which doesn't cover fullscreen. Versions match those
+# already resolved via tauri/window-vibrancy so objc2 stays deduplicated.
+objc2-app-kit = { version = "0.3", features = ["NSWindow"] }
 
 [features]
 default = []
