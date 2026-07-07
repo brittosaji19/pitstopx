@@ -436,23 +436,22 @@ pub async fn update_tray(app: &AppHandle, ctrl: &Controller) {
     let launch = crate::actions::is_launch_at_login(app);
     let app2 = app.clone();
 
+    // Match the icon's neutral ink + track to the current menu-bar appearance so
+    // the macOS indicator stays legible on a light or dark bar. Query the live
+    // system appearance (not the hidden popover's cached theme(), which never
+    // tracks an Auto/manual flip and left white ink on a light bar). Done off the
+    // main thread — it spawns a subprocess; only the UI mutation runs on-main.
+    #[allow(unused_mut)]
+    let mut visual = visual;
+    #[cfg(target_os = "macos")]
+    {
+        visual.dark_appearance = crate::tray::system_is_dark();
+    }
+
     let _ = app.run_on_main_thread(move || {
         let Some(tray) = app2.tray_by_id("main") else {
             return;
         };
-        // Match the icon's neutral colors to the current system appearance so the
-        // macOS menu-bar indicator stays legible on a light or dark menu bar. The
-        // popover window tracks the system theme; query it here on the main thread.
-        #[allow(unused_mut)]
-        let mut visual = visual;
-        #[cfg(target_os = "macos")]
-        {
-            visual.dark_appearance = app2
-                .get_webview_window("popover")
-                .and_then(|w| w.theme().ok())
-                .map(|t| matches!(t, tauri::Theme::Dark))
-                .unwrap_or(false);
-        }
         match crate::tray::render_icon(&visual) {
             Ok(icon) => {
                 let _ = tray.set_icon(Some(icon));

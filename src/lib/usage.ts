@@ -3,13 +3,18 @@
 
 import type { UsageBarDTO } from "./types";
 
-/** Meter color modifier: green < 70%, orange 70–90%, red ≥ 90%, grey unknown. */
-export function barClass(util: number | null): string {
+/**
+ * Meter color modifier. When near the cap the warning tier wins (orange 70–90%,
+ * red ≥ 90%); while safe each window shows its own identity hue so the two
+ * limits read apart — teal for the weekly/monthly window, indigo for 5-hour.
+ * Unknown → grey.
+ */
+export function barClass(util: number | null, weekly = false): string {
   if (util === null) return "unknown";
   const pct = util * 100;
   if (pct >= 90) return "red";
   if (pct >= 70) return "orange";
-  return "green";
+  return weekly ? "teal" : "indigo";
 }
 
 /** Right-aligned percentage text, `–` when unknown. */

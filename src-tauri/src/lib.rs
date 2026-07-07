@@ -101,7 +101,7 @@ pub fn run() {
             // Hide the popover at startup; it's shown on tray click.
             if let Some(win) = app.get_webview_window("popover") {
                 let _ = win.hide();
-                attach_blur_autohide(&win);
+                attach_popover_window_events(&win);
 
                 // macOS: frosted-glass material behind the transparent webview.
                 // The CSS keys translucent surfaces off `data-platform="macos"`,
@@ -415,12 +415,25 @@ fn position_near_tray(app: &AppHandle, win: &WebviewWindow) {
     let _ = win.set_position(Position::Physical(PhysicalPosition { x, y }));
 }
 
-/// Auto-hide the popover when it loses focus (blur).
-fn attach_blur_autohide(win: &WebviewWindow) {
+/// Wire up the popover window's events: auto-hide on blur, and (macOS) re-render
+/// the tray the moment the system appearance flips.
+fn attach_popover_window_events(win: &WebviewWindow) {
     let handle = win.clone();
     win.on_window_event(move |event| {
         if let tauri::WindowEvent::Focused(false) = event {
             hide_popover(handle.app_handle());
+        }
+        // macOS: the menu-bar indicator is a colored (non-template) image, so the
+        // OS won't invert it on a light/dark change the way it does other tray
+        // icons — re-render it ourselves so its ink tracks the flip immediately
+        // instead of waiting for the next 2-min refresh.
+        #[cfg(target_os = "macos")]
+        if let tauri::WindowEvent::ThemeChanged(_) = event {
+            let app = handle.app_handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let ctrl = app::controller(&app);
+                app::update_tray(&app, &ctrl).await;
+            });
         }
     });
 }

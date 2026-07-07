@@ -541,9 +541,15 @@ body {
   }
 }
 
-.meter-fill.green {
-  background: linear-gradient(90deg, #17864a, #1f9d55);
-  --meter-glow: rgba(31, 157, 85, 0.5);
+/* Identity hues for the two limits while safe: indigo = 5-hour, teal = weekly.
+   Near the cap the warning tiers (orange/red) take over. */
+.meter-fill.indigo {
+  background: linear-gradient(90deg, #3f46d6, #5b62f0);
+  --meter-glow: rgba(74, 81, 224, 0.5);
+}
+.meter-fill.teal {
+  background: linear-gradient(90deg, #0b6e78, #12909d);
+  --meter-glow: rgba(14, 143, 158, 0.5);
 }
 .meter-fill.orange {
   background: linear-gradient(90deg, #b45309, #d97706);
@@ -566,9 +572,13 @@ body {
   .meter-track {
     background: rgba(255, 255, 255, 0.15);
   }
-  .meter-fill.green {
-    background: linear-gradient(90deg, #27b467, #34d27b);
-    --meter-glow: rgba(52, 210, 123, 0.55);
+  .meter-fill.indigo {
+    background: linear-gradient(90deg, #7f88ff, #9ba3ff);
+    --meter-glow: rgba(155, 163, 255, 0.55);
+  }
+  .meter-fill.teal {
+    background: linear-gradient(90deg, #2fc7d4, #45dbe6);
+    --meter-glow: rgba(58, 211, 222, 0.55);
   }
   .meter-fill.orange {
     background: linear-gradient(90deg, #f59e0b, #fcae2e);

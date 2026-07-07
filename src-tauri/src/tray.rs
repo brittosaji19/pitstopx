@@ -32,6 +32,21 @@ fn accent_rgb(dark_appearance: bool) -> (u8, u8, u8) {
     }
 }
 
+/// Per-window identity hue for the healthy fill, so the two limits read apart at
+/// a glance: the 5-hour (short) window keeps the electric-indigo brand accent;
+/// the weekly window (`window_index == 1`, incl. Codex's monthly slot) gets a
+/// distinct teal, stepped per appearance for contrast. Both windows still
+/// escalate to amber/red via `tier_fill_rgb` as they approach the cap.
+fn window_accent_rgb(window_index: usize, dark_appearance: bool) -> (u8, u8, u8) {
+    if window_index == 0 {
+        accent_rgb(dark_appearance) // 5h → indigo
+    } else if dark_appearance {
+        (0x3A, 0xD3, 0xDE) // 7d → teal on a dark bar
+    } else {
+        (0x0B, 0x6E, 0x78) // 7d → teal on a light bar
+    }
+}
+
 /// Warning-tier fill color (bars), per appearance: red ≥ 90%, amber ≥ 75%,
 /// `None` (accent) below.
 fn tier_fill_rgb(pct: f64, dark_appearance: bool) -> Option<(u8, u8, u8)> {
@@ -50,6 +65,22 @@ fn tier_fill_rgb(pct: f64, dark_appearance: bool) -> Option<(u8, u8, u8)> {
     } else {
         None
     }
+}
+
+/// Whether macOS is currently in dark appearance, queried **live from the
+/// system** each render. We deliberately don't use a window's `theme()`: a
+/// hidden window (the popover spends most of its life hidden) caches the
+/// appearance it last saw and never tracks an Auto-schedule or manual flip, so
+/// the indicator kept dark-mode white ink on a now-light menu bar. Reads the
+/// global `AppleInterfaceStyle` default, which is `"Dark"` in dark mode
+/// (including the dark phase of Auto) and absent in light mode.
+#[cfg(target_os = "macos")]
+pub fn system_is_dark() -> bool {
+    std::process::Command::new("defaults")
+        .args(["read", "-g", "AppleInterfaceStyle"])
+        .output()
+        .map(|o| o.status.success() && o.stdout.starts_with(b"Dark"))
+        .unwrap_or(false)
 }
 
 /// Inputs that determine what the tray icon should look like right now.
@@ -142,9 +173,11 @@ fn render_square(v: &TrayVisual) -> Result<Image<'static>> {
 
 /// Wide indicator size (px). The system scales this to the menu-bar height, so a
 /// shorter canvas (relative to the glyph/bar sizes below) keeps the two rows of
-/// text and bars large enough to read once downscaled.
-const RECT_W: u32 = 220;
-const RECT_H: u32 = 50;
+/// text and bars large enough to read once downscaled. Tuned so the height lands
+/// near the Retina menu bar's ~44px — close to 1:1, which keeps the bold
+/// percentage numerals crisp instead of blurred by an aggressive downscale.
+const RECT_W: u32 = 204;
+const RECT_H: u32 = 46;
 
 /// Wide two-bar indicator for the macOS menu bar: the 5-hour and weekly windows
 /// as pill-shaped progress bars with their percentages, color-coded by warning
@@ -180,7 +213,7 @@ fn render_rectangular(v: &TrayVisual) -> Result<Image<'static>> {
     let pct_w = 4 * glyph_w + 3 * gap; // room for up to "100%"
     let bar_x = left + label_w + 6;
     let bar_w = (RECT_W as i32 - right - pct_w - 6 - bar_x).max(8);
-    let bar_h = 14_i32;
+    let bar_h = 12_i32;
 
     for (i, (label, util)) in [("5h", v.five_hour), ("7d", v.seven_day)]
         .into_iter()
@@ -190,22 +223,23 @@ fn render_rectangular(v: &TrayVisual) -> Result<Image<'static>> {
         let text_y = row_y0 + (row_h - glyph_h) / 2;
         let pct = util.map(|u| (u * 100.0).round());
 
-        // Bar/percent color follows the warning tier; brand indigo otherwise.
+        // Bar/percent color: warning tier once near the cap, else the window's
+        // own identity hue (5h indigo, 7d teal) so the two limits read apart.
         let (cr, cg, cb) = pct
             .and_then(|p| tier_fill_rgb(p, v.dark_appearance))
-            .unwrap_or_else(|| accent_rgb(v.dark_appearance));
+            .unwrap_or_else(|| window_accent_rgb(i, v.dark_appearance));
 
-        // Window label in the neutral ink.
+        // Window label in the neutral ink (regular weight — it's secondary).
         let mut lx = left;
         for ch in label.chars() {
             draw_glyph(
                 &mut pixmap,
                 glyph_for(ch),
-                lx,
-                text_y,
+                (lx, text_y),
                 cell,
                 label_rgb,
                 alpha,
+                false,
             );
             lx += glyph_w + gap;
         }
@@ -249,14 +283,15 @@ fn render_rectangular(v: &TrayVisual) -> Result<Image<'static>> {
         let text_w = chars.len() as i32 * glyph_w + (chars.len() as i32 - 1).max(0) * gap;
         let mut px = RECT_W as i32 - right - text_w;
         for ch in chars {
+            // The percentage is the headline figure — draw it bold.
             draw_glyph(
                 &mut pixmap,
                 glyph_for(ch),
-                px,
-                text_y,
+                (px, text_y),
                 cell,
                 (cr, cg, cb),
                 alpha,
+                true,
             );
             px += glyph_w + gap;
         }
@@ -389,29 +424,40 @@ fn draw_percent_pill(pixmap: &mut Pixmap, label: &str, pct: Option<f64>, alpha: 
 
     let mut pen_x = x0;
     for c in chars {
-        draw_glyph(pixmap, glyph_for(c), pen_x, y0, cell, (tr, tg, tb), alpha);
+        draw_glyph(
+            pixmap,
+            glyph_for(c),
+            (pen_x, y0),
+            cell,
+            (tr, tg, tb),
+            alpha,
+            true,
+        );
         pen_x += glyph_w + gap;
     }
 }
 
-/// Blit one 5×7 glyph at `cell`-pixel scale.
+/// Blit one 5×7 glyph at `cell`-pixel scale. When `bold`, each lit cell is
+/// widened by 1px so strokes stay solid (and legible) after the menu bar
+/// downscales the icon — a faux-bold that needs no second font asset.
 fn draw_glyph(
     pixmap: &mut Pixmap,
     glyph: [u8; GLYPH_H],
-    ox: i32,
-    oy: i32,
+    (ox, oy): (i32, i32),
     cell: i32,
     (r, g, b): (u8, u8, u8),
     alpha: f32,
+    bold: bool,
 ) {
     let a = (255.0 * alpha) as u8;
     let (w, h) = (pixmap.width() as i32, pixmap.height() as i32);
+    let cell_w = cell + if bold { 1 } else { 0 };
     for (row, bits) in glyph.iter().enumerate() {
         for col in 0..GLYPH_W {
             // Bit 4 (0x10) is the leftmost column.
             if bits & (1 << (GLYPH_W - 1 - col)) != 0 {
                 for dy in 0..cell {
-                    for dx in 0..cell {
+                    for dx in 0..cell_w {
                         let px = ox + col as i32 * cell + dx;
                         let py = oy + row as i32 * cell + dy;
                         if px >= 0 && py >= 0 && px < w && py < h {
@@ -790,7 +836,10 @@ mod preview {
         let warn_dark = visual(0.93, 0.78, true);
 
         save(&render_square(&mid_light).unwrap(), "/tmp/tray_square.png");
-        save(&render_rectangular(&mid_light).unwrap(), "/tmp/tray_rect.png");
+        save(
+            &render_rectangular(&mid_light).unwrap(),
+            "/tmp/tray_rect.png",
+        );
         save(
             &render_rectangular(&mid_dark).unwrap(),
             "/tmp/tray_rect_dark.png",

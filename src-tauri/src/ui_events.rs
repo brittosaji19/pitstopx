@@ -56,6 +56,9 @@ pub struct UsageBarDto {
     pub label: String,
     pub utilization: Option<f64>,
     pub reset_text: String,
+    /// The weekly (long) window — the seven-day slot, incl. Codex's monthly
+    /// window. Drives the meter's identity color (teal vs the 5-hour indigo).
+    pub weekly: bool,
 }
 
 impl UiSnapshot {
@@ -129,7 +132,8 @@ fn build_bars(report: Option<&UsageReport>, now: chrono::DateTime<Local>) -> Vec
     };
     [&r.five_hour, &r.seven_day]
         .into_iter()
-        .filter_map(|w| {
+        .enumerate()
+        .filter_map(|(idx, w)| {
             let label = w.label()?;
             Some(UsageBarDto {
                 label,
@@ -138,6 +142,8 @@ fn build_bars(report: Option<&UsageReport>, now: chrono::DateTime<Local>) -> Vec
                     .resets_at
                     .map(|t| format::compact_reset(t, now))
                     .unwrap_or_default(),
+                // Slot 1 is the seven-day/monthly (weekly) window; slot 0 is 5h.
+                weekly: idx == 1,
             })
         })
         .collect()

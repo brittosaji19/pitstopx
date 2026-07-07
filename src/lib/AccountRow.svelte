@@ -76,7 +76,7 @@
         <span class="meter-label">{bar.label}</span>
         <div class="meter-track">
           <div
-            class="meter-fill {barClass(bar.utilization)}"
+            class="meter-fill {barClass(bar.utilization, bar.weekly)}"
             style={`width:${mounted ? fillWidth(bar) : "0%"}`}
           ></div>
         </div>

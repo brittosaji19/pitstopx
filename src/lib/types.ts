@@ -37,4 +37,5 @@ export interface UsageBarDTO {
   label: string; // window label derived from its length: "5h", "7d", "Monthly", …
   utilization: number | null; // 0..1
   resetText: string; // "9:49 PM · 3h 34m"
+  weekly: boolean; // weekly/monthly window → teal identity color (5h → indigo)
 }

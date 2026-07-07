@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C /Users/britto/pitstopx show HEAD:src-tauri/Cargo.lock)",
+      "WebSearch",
+      "Bash(screencapture -x -R760,0,680,30 /tmp/menubar_dark_crop.png)",
+      "Bash(screencapture -x -R1000,0,440,24 /tmp/tray_dark.png)",
+      "Bash(/usr/bin/python3 -c ' *)",
+      "Read(//tmp/**)",
+      "Read(//private/tmp/**)"
+    ]
+  }
+}
